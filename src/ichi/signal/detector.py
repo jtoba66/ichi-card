@@ -705,17 +705,20 @@ _TF_SECS = {"1d": 86400, "4h": 14400, "1w": 604800}
 def _db_onset_blocked(
     signal_type: int, symbol: str, tf: str,
     current_ts: float, tf_secs: int,
+    current_price: float = 0.0,
 ) -> bool:
     """Query DB for most recent instance of (type, symbol, tf).
 
     Returns True (block) when:
       - status=OPEN and fired < 60 bars ago  (still active)
-      - status=CLOSED and closed < 3 bars ago (cooldown)
+      - status=CLOSED and price hasn't displaced ≥5% from last entry
+        (same zone lingering — not a genuine new setup)
+        with a hard minimum 3-bar cooldown to prevent same-bar duplicates
     """
     try:
         conn = sqlite3.connect(DB_PATH)
         row = conn.execute(
-            """SELECT status, fired_at, exit_bar, exit_timestamp
+            """SELECT status, fired_at, exit_bar, exit_timestamp, entry_price
                FROM signal_log
                WHERE signal_type = ? AND symbol = ? AND timeframe = ?
                ORDER BY fired_at DESC LIMIT 1""",
@@ -724,23 +727,33 @@ def _db_onset_blocked(
         conn.close()
         if row is None:
             return False
-        status, fired_at_str, exit_bar, exit_ts_str = row
+        status, fired_at_str, exit_bar, exit_ts_str, entry_price = row
         fired_ts = datetime.fromisoformat(fired_at_str).timestamp()
 
         if status == "OPEN":
             return (current_ts - fired_ts) / tf_secs < 60
 
-        # CLOSED — cooldown = max(20 bars, duration of the trade that just closed)
-        # Prevents rapid re-fire when the setup condition is persistent
+        # CLOSED — price displacement gate
+        # Hard minimum: 3-bar cooldown regardless of price
         if exit_ts_str:
             exit_ts = datetime.fromisoformat(exit_ts_str).timestamp()
         elif exit_bar is not None:
             exit_ts = fired_ts + exit_bar * tf_secs
         else:
             exit_ts = fired_ts
-        trade_duration_bars = (exit_ts - fired_ts) / tf_secs
-        cooldown_bars = max(20, trade_duration_bars)
-        return (current_ts - exit_ts) / tf_secs < cooldown_bars
+
+        bars_since_exit = (current_ts - exit_ts) / tf_secs
+        if bars_since_exit < 3:
+            return True  # always block same-bar / immediate re-fires
+
+        # Price displacement check: allow re-fire only if price moved ≥5% away
+        # from the last entry (genuine new setup) — otherwise it's the same zone
+        if current_price > 0 and entry_price and entry_price > 0:
+            displacement = abs(current_price - entry_price) / entry_price * 100
+            if displacement < 5.0:
+                return True  # same zone — block
+
+        return False
     except Exception:
         return False
 
@@ -790,8 +803,9 @@ def detect_all_signals(
                     if sig_type in _blocked_types:
                         continue
                 elif not is_backfill:
-                    # Live scan: query DB
-                    if _db_onset_blocked(sig_type, symbol, tf, current_ts, tf_secs):
+                    # Live scan: query DB with current price for displacement gate
+                    current_price = float(df["close"].iat[i])
+                    if _db_onset_blocked(sig_type, symbol, tf, current_ts, tf_secs, current_price):
                         continue
                 # (is_backfill=True with _blocked_types=None → no gate; shouldn't occur)
 
