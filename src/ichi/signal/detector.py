@@ -104,6 +104,7 @@ def init_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     try:
+        conn.execute("PRAGMA journal_mode=WAL")   # allow concurrent reads during writes
         conn.executescript(_CREATE_SIGNAL_LOG)
         conn.executescript(_CREATE_SIGNAL_LOG_INDEXES)
         conn.executescript(_CREATE_CHIKOU_LEVELS)
