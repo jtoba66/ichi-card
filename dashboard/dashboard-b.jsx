@@ -184,7 +184,7 @@ function useSortB(col, asc = true) {
   return [s, toggle];
 }
 
-function SortHeader({ col, label, sort, onSort }) {
+function SortHeaderB({ col, label, sort, onSort }) {
   const active = sort.col === col;
   return (
     <th style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap', color: active ? 'var(--accent)' : 'var(--dim)' }}
@@ -208,9 +208,9 @@ function TransitionTable({ tf }) {
     <table className="db-table">
       <thead><tr>
         <th>Symbol</th><th>TF</th>
-        <SortHeader col="bars_ago" label={<AbbTip id="COL_BARS_AGO">Bars Ago</AbbTip>} sort={sort} onSort={onSort} />
+        <SortHeaderB col="bars_ago" label={<AbbTip id="COL_BARS_AGO">Bars Ago</AbbTip>} sort={sort} onSort={onSort} />
         <th><AbbTip id="COL_CONDITIONS">Conditions</AbbTip></th>
-        <SortHeader col="bull_score" label={<AbbTip id="COL_SCORE">Score</AbbTip>} sort={sort} onSort={onSort} />
+        <SortHeaderB col="bull_score" label={<AbbTip id="COL_SCORE">Score</AbbTip>} sort={sort} onSort={onSort} />
         <th><AbbTip id="COL_PRICE_POS">Cloud Pos</AbbTip></th>
         <th><AbbTip id="COL_VOL">Vol Ratio</AbbTip></th>
       </tr></thead>
@@ -248,9 +248,9 @@ function RetestTable({ tf }) {
     <table className="db-table">
       <thead><tr>
         <th>Symbol</th><th>TF</th><th>Level</th>
-        <SortHeader col="distance_pct" label={<AbbTip id="COL_DISTANCE">Distance</AbbTip>} sort={sort} onSort={onSort} />
+        <SortHeaderB col="distance_pct" label={<AbbTip id="COL_DISTANCE">Distance</AbbTip>} sort={sort} onSort={onSort} />
         <th><AbbTip id="COL_SLOPE">Slope</AbbTip></th>
-        <SortHeader col="bull_score" label={<AbbTip id="COL_SCORE">Score</AbbTip>} sort={sort} onSort={onSort} />
+        <SortHeaderB col="bull_score" label={<AbbTip id="COL_SCORE">Score</AbbTip>} sort={sort} onSort={onSort} />
         <th><AbbTip id="GROUP_A">Group</AbbTip></th>
         <th><AbbTip id="COL_BOUNCE">Bounce Hist</AbbTip></th>
         <th>Note</th>
@@ -330,9 +330,9 @@ function KumoTwistTable({ tf }) {
     <table className="db-table">
       <thead><tr>
         <th>Symbol</th><th>TF</th>
-        <SortHeader col="bars_until_twist" label={<AbbTip id="COL_TWIST_IN">Twist In</AbbTip>} sort={sort} onSort={onSort} />
+        <SortHeaderB col="bars_until_twist" label={<AbbTip id="COL_TWIST_IN">Twist In</AbbTip>} sort={sort} onSort={onSort} />
         <th>Direction</th><th>Current Cloud</th>
-        <SortHeader col="bull_score" label={<AbbTip id="COL_SCORE">Score</AbbTip>} sort={sort} onSort={onSort} />
+        <SortHeaderB col="bull_score" label={<AbbTip id="COL_SCORE">Score</AbbTip>} sort={sort} onSort={onSort} />
         <th>Action Note</th>
       </tr></thead>
       <tbody>
@@ -377,8 +377,8 @@ function E2ETable({ tf }) {
           <thead><tr>
             <th>Symbol</th><th>TF</th><th>Direction</th>
             <th>Entry</th><th>Target</th>
-            <SortHeader col="target_pct" label={<AbbTip id="COL_TARGET_PCT">Target %</AbbTip>} sort={sort} onSort={onSort} />
-            <SortHeader col="cloud_thickness_pct" label={<AbbTip id="COL_THICK">Cloud Thick</AbbTip>} sort={sort} onSort={onSort} />
+            <SortHeaderB col="target_pct" label={<AbbTip id="COL_TARGET_PCT">Target %</AbbTip>} sort={sort} onSort={onSort} />
+            <SortHeaderB col="cloud_thickness_pct" label={<AbbTip id="COL_THICK">Cloud Thick</AbbTip>} sort={sort} onSort={onSort} />
             <th><AbbTip id="COL_BARS_AGO_E2E">Bars Ago</AbbTip></th>
             <th><AbbTip id="COL_SCORE">Score</AbbTip></th>
             <th>Flag</th>
@@ -426,11 +426,11 @@ function CloudCurlingTable({ tf }) {
     <table className="db-table">
       <thead><tr>
         <th>Symbol</th><th>TF</th>
-        <SortHeader col="state" label="State" sort={sort} onSort={onSort} />
+        <SortHeaderB col="state" label="State" sort={sort} onSort={onSort} />
         <th><AbbTip id="COL_TWIST_IN">Bars to Twist</AbbTip></th>
         <th><AbbTip id="COL_SPANA_SLOPE">SpanA Slope</AbbTip></th>
         <th><AbbTip id="COL_THICK">Cloud Thick</AbbTip></th>
-        <SortHeader col="bull_score" label={<AbbTip id="COL_SCORE">Score</AbbTip>} sort={sort} onSort={onSort} />
+        <SortHeaderB col="bull_score" label={<AbbTip id="COL_SCORE">Score</AbbTip>} sort={sort} onSort={onSort} />
         <th><AbbTip id="COL_PRICE_POS">Price Pos</AbbTip></th>
       </tr></thead>
       <tbody>
