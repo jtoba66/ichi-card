@@ -1,0 +1,42 @@
+name: Deploy to HP
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+
+      - name: SSH deploy to HP
+        uses: appleboy/ssh-action@v1
+        with:
+          host: 100.70.254.14
+          username: joseph
+          key: ${{ secrets.DEPLOY_KEY }}
+          script: |
+            set -e
+            cd /home/joseph/ichi-scorecard
+
+            echo "--- pulling latest code ---"
+            git pull origin master
+
+            echo "--- syncing dependencies ---"
+            ~/.local/bin/uv sync --quiet
+
+            echo "--- restarting services ---"
+            sudo systemctl restart ichi-api
+            sudo systemctl restart ichi-dashboard
+
+            echo "--- verifying ---"
+            sleep 2
+            sudo systemctl is-active ichi-api
+            sudo systemctl is-active ichi-dashboard
+
+            echo "Deploy done at $(date -u)"
