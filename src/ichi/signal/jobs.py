@@ -28,6 +28,24 @@ logger = logging.getLogger(__name__)
 
 # ── Exit condition checker ────────────────────────────────────────────────────
 
+def _compute_atr14(df: pd.DataFrame, bar_i: int) -> float:
+    """Wilder ATR(14) at bar_i. Returns 0.0 if not enough data."""
+    start = max(0, bar_i - 14)
+    sub = df.iloc[start: bar_i + 1]
+    if len(sub) < 2:
+        return 0.0
+    import numpy as np
+    h = sub["high"].values
+    l = sub["low"].values
+    c = sub["close"].values
+    prev_c = np.concatenate([[c[0]], c[:-1]])
+    tr = np.maximum(h - l, np.maximum(np.abs(h - prev_c), np.abs(l - prev_c)))
+    atr = tr[0]
+    for t in tr[1:]:
+        atr = (atr * 13 + t) / 14
+    return float(atr)
+
+
 def check_exit_conditions(
     df: pd.DataFrame,
     entry_bar: int,
@@ -36,37 +54,31 @@ def check_exit_conditions(
     signal_type: int,
     metadata: dict,
 ) -> Optional[dict]:
-    """
-    Scan bars from entry_bar+1 to current_bar (inclusive) checking three-tier exits.
-    Returns the EARLIEST Tier-3 exit found, plus the accumulated warning_log.
-    Returns None if no Tier-3 exit has fired yet.
-    exit_bar is stored as BARS FROM ENTRY (not absolute index).
-    """
     warning_log: list[dict] = []
+
+    atr_val      = _compute_atr14(df, entry_bar)
+    initial_stop = entry_price - 2.0 * atr_val if atr_val > 0 else None
+    trailing_stop = initial_stop
+    highest_close = entry_price
 
     for j in range(entry_bar + 1, current_bar + 1):
         if j >= len(df):
             break
 
         bars_from_entry = j - entry_bar
-        close = float(df["close"].iat[j])
-        kj    = float(df["kj"].iat[j])
+        close     = float(df["close"].iat[j])
+        kj        = float(df["kj"].iat[j])
         cloud_top = float(df["_cloud_top"].iat[j])
         cloud_bot = float(df["_cloud_bottom"].iat[j])
-
-        prev_close = float(df["close"].iat[j - 1])
+        prev_close     = float(df["close"].iat[j - 1])
         prev_cloud_top = float(df["_cloud_top"].iat[j - 1])
 
-        # ── Tier 1 warnings (don't close; record for analysis) ──────────────
-
-        # Bearish TK cross
+        # ── Tier 1 warnings ──────────────────────────────────────────────
         try:
             if df["tk"].iat[j] < df["kj"].iat[j] and df["tk"].iat[j - 1] >= df["kj"].iat[j - 1]:
                 _append_warning(warning_log, bars_from_entry, 1, "BEARISH_TK_CROSS")
         except Exception:
             pass
-
-        # Price > 20% above KJ (imbalance risk)
         try:
             kj_dist = (close - kj) / kj * 100 if kj else 0
             if kj_dist > 20:
@@ -74,13 +86,9 @@ def check_exit_conditions(
         except Exception:
             pass
 
-        # ── Tier 2 (record, don't close) ────────────────────────────────────
-
-        # Price below KJ
+        # ── Tier 2 warnings ──────────────────────────────────────────────
         if close < kj:
             _append_warning(warning_log, bars_from_entry, 2, "PRICE_BELOW_KJ")
-
-        # Chikou crossed below past price
         try:
             if (not bool(df["_chikou_above_past_price"].iat[j])
                     and bool(df["_chikou_above_past_price"].iat[j - 1])):
@@ -88,27 +96,24 @@ def check_exit_conditions(
         except Exception:
             pass
 
-        # ── Tier 3 hard exits ────────────────────────────────────────────────
+        # ── Tier 3: COMBO_TIGHT stop ──────────────────────────────────────
+        if initial_stop is not None:
+            highest_close = max(highest_close, close)
+            if bars_from_entry <= 10:
+                active_stop = initial_stop
+            else:
+                new_trail    = highest_close - 2.0 * atr_val
+                trailing_stop = max(trailing_stop, new_trail)  # type: ignore[arg-type]
+                active_stop  = trailing_stop
 
-        # a. Price closes below cloud top (was above)
-        if close < cloud_top and prev_close > prev_cloud_top:
-            mae, mfe, _ = _compute_excursions(df, entry_bar, j, entry_price)
-            return _make_exit(bars_from_entry, "CLOUD_TOP_BREAK", close, entry_price, warning_log, mae=mae, mfe=mfe)
+            if close < active_stop:
+                mae, mfe, _ = _compute_excursions(df, entry_bar, j, entry_price)
+                return _make_exit(
+                    bars_from_entry, "COMBO_TIGHT_STOP", close,
+                    entry_price, warning_log, mae=mae, mfe=mfe,
+                )
 
-        # b. Price closes below cloud bottom
-        if close < cloud_bot:
-            mae, mfe, _ = _compute_excursions(df, entry_bar, j, entry_price)
-            return _make_exit(bars_from_entry, "CLOUD_BOT_BREAK", close, entry_price, warning_log, mae=mae, mfe=mfe)
-
-        # c. Signal-specific invalidations
-        specific = _check_signal_specific_exit(
-            df, j, close, kj, cloud_top, cloud_bot, signal_type, metadata
-        )
-        if specific:
-            mae, mfe, _ = _compute_excursions(df, entry_bar, j, entry_price)
-            return _make_exit(bars_from_entry, specific, close, entry_price, warning_log, mae=mae, mfe=mfe)
-
-    return None  # No Tier-3 exit found yet
+    return None
 
 
 def _append_warning(log: list, bar: int, tier: int, condition: str) -> None:

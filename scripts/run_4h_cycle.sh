@@ -39,4 +39,14 @@ else
     log "ERROR: Tracker failed (exit $?)"
 fi
 
+# 3. Push notifications for new/closed signals
+SINCE=$(date -u -d '4 hours 10 minutes ago' '+%Y-%m-%dT%H:%M:%S+00:00' 2>/dev/null || \
+        date -u -v-4H -v-10M '+%Y-%m-%dT%H:%M:%S+00:00')
+log "Sending push notifications..."
+if "$UV" run python "$PROJ/scripts/notify.py" --since "$SINCE" --topic ichi-joe >> "$LOG" 2>&1; then
+    log "Notifications OK"
+else
+    log "Notifications failed (non-fatal)"
+fi
+
 log "===== 4h cycle DONE ====="

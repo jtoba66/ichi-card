@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ichi.4hcycle</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/joseph/Documents/tradera/ichi-scorecard/scripts/run_4h_cycle.sh</string>
+    </array>
+
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict><key>Hour</key><integer>20</integer><key>Minute</key><integer>5</integer></dict>
+        <dict><key>Hour</key><integer>0</integer><key>Minute</key><integer>5</integer></dict>
+        <dict><key>Hour</key><integer>4</integer><key>Minute</key><integer>5</integer></dict>
+        <dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>5</integer></dict>
+        <dict><key>Hour</key><integer>12</integer><key>Minute</key><integer>5</integer></dict>
+        <dict><key>Hour</key><integer>16</integer><key>Minute</key><integer>5</integer></dict>
+    </array>
+
+    <key>StandardOutPath</key>
+    <string>/Users/joseph/Documents/tradera/ichi-scorecard/data/logs/launchd_cycle.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/joseph/Documents/tradera/ichi-scorecard/data/logs/launchd_cycle_err.log</string>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/joseph/Documents/tradera/ichi-scorecard</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Users/joseph/.local/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>HOME</key>
+        <string>/Users/joseph</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>

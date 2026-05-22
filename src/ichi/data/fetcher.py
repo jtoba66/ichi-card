@@ -33,7 +33,9 @@ def _fetch_all(
             try:
                 candles = exchange.fetch_ohlcv(symbol, timeframe, since=since_ms, limit=1000)
                 break
-            except Exception:
+            except Exception as exc:
+                if "does not have market symbol" in str(exc) or isinstance(exc, ccxt.BadSymbol):
+                    return pd.DataFrame(columns=_COLUMNS[1:])
                 if attempt == retries - 1:
                     raise
                 time.sleep(2 ** attempt)
