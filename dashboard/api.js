@@ -2,9 +2,13 @@
 // in the same shape that data.js produced so all dashboard components work unchanged.
 
 const API_BASE = (() => {
-  // When served by the Python static server on port 7890, point to the FastAPI server.
+  // When served by the Python static server on port 7890, the API lives on the
+  // same host but port 8000 — use window.location.hostname so it works whether
+  // the user is on the same machine (localhost), local network (10.x), or
+  // Tailscale (100.x).
   if (window.location.port === '7890' || window.location.protocol === 'file:') {
-    return 'http://localhost:8000';
+    const host = window.location.hostname || 'localhost';
+    return `http://${host}:8000`;
   }
   // Otherwise assume same origin (prod VPS with nginx proxy).
   return '';
