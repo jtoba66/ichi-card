@@ -730,14 +730,17 @@ def _db_onset_blocked(
         if status == "OPEN":
             return (current_ts - fired_ts) / tf_secs < 60
 
-        # CLOSED — 3-bar cooldown
+        # CLOSED — cooldown = max(20 bars, duration of the trade that just closed)
+        # Prevents rapid re-fire when the setup condition is persistent
         if exit_ts_str:
             exit_ts = datetime.fromisoformat(exit_ts_str).timestamp()
         elif exit_bar is not None:
             exit_ts = fired_ts + exit_bar * tf_secs
         else:
             exit_ts = fired_ts
-        return (current_ts - exit_ts) / tf_secs < 3
+        trade_duration_bars = (exit_ts - fired_ts) / tf_secs
+        cooldown_bars = max(20, trade_duration_bars)
+        return (current_ts - exit_ts) / tf_secs < cooldown_bars
     except Exception:
         return False
 
