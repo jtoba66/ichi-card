@@ -50,11 +50,15 @@ def main() -> None:
     """, (args.since,)).fetchall()
     conn.close()
 
+    MAX_LINES = 8  # ntfy free tier ~4KB body limit
+
     if new_sigs:
         lines = []
-        for s in new_sigs:
+        for s in list(new_sigs)[:MAX_LINES]:
             name = SIGNAL_NAMES.get(s["signal_type"], f"Sig{s['signal_type']}")
-            lines.append(f"{s['symbol']} — {name} {s['timeframe']} | score {s['bull_score']} | entry {s['entry_price']}")
+            lines.append(f"{s['symbol']} {name} {s['timeframe']} sc{s['bull_score']} @{s['entry_price']}")
+        if len(new_sigs) > MAX_LINES:
+            lines.append(f"...+{len(new_sigs)-MAX_LINES} more")
         push(args.topic,
              f"🟢 {len(new_sigs)} new signal{'s' if len(new_sigs)>1 else ''}",
              "\n".join(lines),
@@ -63,10 +67,12 @@ def main() -> None:
 
     if closed_sigs:
         lines = []
-        for s in closed_sigs:
+        for s in list(closed_sigs)[:MAX_LINES]:
             ret   = s["exit_return"]
             emoji = "✅" if ret and ret > 0 else "❌"
-            lines.append(f"{emoji} {s['symbol']} {s['timeframe']} | {ret:+.1f}% | {s['exit_condition']} | {s['duration_bars']}bars")
+            lines.append(f"{emoji} {s['symbol']} {s['timeframe']} {ret:+.1f}% {s['duration_bars']}bars")
+        if len(closed_sigs) > MAX_LINES:
+            lines.append(f"...+{len(closed_sigs)-MAX_LINES} more")
         push(args.topic,
              f"📊 {len(closed_sigs)} signal{'s' if len(closed_sigs)>1 else ''} closed",
              "\n".join(lines),
