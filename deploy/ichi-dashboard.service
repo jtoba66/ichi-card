@@ -4,9 +4,9 @@ After=network.target
 
 [Service]
 Type=simple
-User=joseph
-WorkingDirectory=/home/joseph/ichi-scorecard
-ExecStart=/usr/bin/python3 -m http.server 7890 --directory /home/joseph/ichi-scorecard/dashboard
+User=joe
+WorkingDirectory=/home/joe/ichi-scorecard
+ExecStart=/usr/bin/python3 -m http.server 7890 --directory /home/joe/ichi-scorecard/dashboard
 Restart=always
 RestartSec=10
 StandardOutput=journal

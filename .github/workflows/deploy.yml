@@ -18,11 +18,11 @@ jobs:
         uses: appleboy/ssh-action@v1
         with:
           host: 100.70.254.14
-          username: joseph
+          username: joe
           key: ${{ secrets.DEPLOY_KEY }}
           script: |
             set -e
-            cd /home/joseph/ichi-scorecard
+            cd /home/joe/ichi-scorecard
 
             echo "--- pulling latest code ---"
             git pull origin master

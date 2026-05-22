@@ -5,14 +5,14 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=joseph
-WorkingDirectory=/home/joseph/ichi-scorecard
-ExecStart=/home/joseph/ichi-scorecard/.venv/bin/uvicorn ichi.api.main:app --port 8000 --host 0.0.0.0 --log-level warning
+User=joe
+WorkingDirectory=/home/joe/ichi-scorecard
+ExecStart=/home/joe/ichi-scorecard/.venv/bin/uvicorn ichi.api.main:app --port 8000 --host 0.0.0.0 --log-level warning
 Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
-Environment=PYTHONPATH=/home/joseph/ichi-scorecard/src
+Environment=PYTHONPATH=/home/joe/ichi-scorecard/src
 
 [Install]
 WantedBy=multi-user.target

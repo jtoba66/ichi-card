@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # ============================================================
 # Ichi Scorecard — Ubuntu setup script
-# Run once on the HP Ubuntu machine as user 'joseph'
+# Run once on the HP Ubuntu machine as user 'joe'
 # Usage: bash deploy/setup_ubuntu.sh
 # ============================================================
 set -euo pipefail
 
-PROJ="/home/joseph/ichi-scorecard"
+PROJ="/home/joe/ichi-scorecard"
 REPO="https://github.com/jtoba66/ichi-card.git"
 
 echo ""
@@ -81,13 +81,13 @@ echo "   (run this on the Mac, replace HP_IP with HP's IP)"
 echo ""
 echo "   rsync -avz --progress \\"
 echo "     ~/Documents/tradera/ichi-scorecard/data/ \\"
-echo "     joseph@HP_IP:/home/joseph/ichi-scorecard/data/"
+echo "     joe@HP_IP:/home/joe/ichi-scorecard/data/"
 echo ""
 echo " Then restart services:"
-echo "   ssh joseph@HP_IP 'sudo systemctl restart ichi-api'"
+echo "   ssh joe@HP_IP 'sudo systemctl restart ichi-api'"
 echo ""
 echo " Check service status:"
 echo "   sudo systemctl status ichi-api"
 echo "   sudo systemctl status ichi-dashboard"
-echo "   tail -f /home/joseph/ichi-scorecard/data/logs/cycle.log"
+echo "   tail -f /home/joe/ichi-scorecard/data/logs/cycle.log"
 echo "================================================"
