@@ -32,21 +32,23 @@ def main() -> None:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
 
-    # New OPEN signals fired since last run
+    # New Signal 1 (Sanyaku) fires — the only validated signal worth pushing
     new_sigs = conn.execute("""
         SELECT symbol, signal_type, timeframe, entry_price, bull_score, fired_at
         FROM signal_log
-        WHERE status='OPEN' AND fired_at >= ? AND is_backfill=0
-        ORDER BY fired_at DESC
+        WHERE signal_type=1 AND bull_score >= 13
+          AND status='OPEN' AND fired_at >= ? AND is_backfill=0
+        ORDER BY bull_score DESC, fired_at DESC
     """, (args.since,)).fetchall()
 
-    # Signals just closed since last run
+    # Signal 1 closes since last run
     closed_sigs = conn.execute("""
         SELECT symbol, signal_type, timeframe, entry_price, exit_return,
                exit_condition, duration_bars, bull_score
         FROM signal_log
-        WHERE status='CLOSED' AND updated_at >= ? AND exit_return IS NOT NULL
-        ORDER BY updated_at DESC
+        WHERE signal_type=1
+          AND status='CLOSED' AND updated_at >= ? AND exit_return IS NOT NULL
+        ORDER BY exit_return DESC
     """, (args.since,)).fetchall()
     conn.close()
 
