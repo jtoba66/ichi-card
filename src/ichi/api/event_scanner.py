@@ -182,15 +182,23 @@ def get_kumo_twist(
     span_a_lead = df["span_a_lead"]
     span_b_lead = df["span_b_lead"]
 
-    current_sign      = np.sign(float(span_a_lead.iat[i]) - float(span_b_lead.iat[i]))
+    # Current cloud direction from the shifted columns (span_a[i] = span_a_lead[i-26])
     current_cloud_bull = float(df["span_a"].iat[i]) > float(df["span_b"].iat[i])
+    current_sign = 1 if current_cloud_bull else -1
 
+    # The projected cloud k bars ahead = span_a_lead[i - 26 + k] for k = 1..26
+    # (because span_a[i+k] = span_a_lead.shift(26)[i+k] = span_a_lead[i+k-26])
+    # All these indices are within the existing dataframe — no lookahead needed.
+    DISPLACEMENT = 26
     bars_until = None
     twist_dir  = None
-    for j in range(1, min(max_bars_ahead + 1, len(df) - i)):
-        future_sign = np.sign(float(span_a_lead.iat[i + j]) - float(span_b_lead.iat[i + j]))
+    for k in range(1, min(max_bars_ahead + 1, DISPLACEMENT + 1)):
+        lead_idx = i - DISPLACEMENT + k
+        if lead_idx < 0:
+            continue
+        future_sign = np.sign(float(span_a_lead.iat[lead_idx]) - float(span_b_lead.iat[lead_idx]))
         if future_sign != current_sign and future_sign != 0:
-            bars_until = j
+            bars_until = k
             twist_dir  = "BULL_TWIST" if future_sign > 0 else "BEAR_TWIST"
             break
 

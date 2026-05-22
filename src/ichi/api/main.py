@@ -23,6 +23,7 @@ from pydantic import BaseModel
 from ichi.api.history import attach_history, save_history
 from ichi.api.scanner import run_event_scan, run_full_scan
 from ichi.signal.detector import init_db as _init_signal_db
+from ichi.notifier import push_events, push_new_signals
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +86,12 @@ def _do_scan() -> None:
         events = run_event_scan()
         with _events_lock:
             _events_cache.update(events)
+        # Push new dashboard events + any new signals to ntfy in real time
+        try:
+            push_events(events)
+            push_new_signals()
+        except Exception as notif_exc:
+            logger.warning("ntfy push failed (non-fatal): %s", notif_exc)
     except Exception as exc:
         logger.exception("Event scan failed: %s", exc)
 
