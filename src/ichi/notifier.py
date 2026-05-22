@@ -149,7 +149,7 @@ def push_new_signals(since: str | None = None) -> None:
     last_ts = since or state.get("last_signal_ts") or "2020-01-01T00:00:00+00:00"
     now_str = datetime.now(timezone.utc).isoformat()
 
-    conn = sqlite3.connect(_DB_PATH)
+    conn = sqlite3.connect(_DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
 
     raw_new = conn.execute("""

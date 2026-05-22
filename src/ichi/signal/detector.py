@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS cooccurrence_log (
 def init_db() -> None:
     """Create all tables and indexes. Safe to call repeatedly (IF NOT EXISTS)."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     try:
         conn.execute("PRAGMA journal_mode=WAL")   # allow concurrent reads during writes
         conn.executescript(_CREATE_SIGNAL_LOG)
@@ -179,7 +179,7 @@ def _safe(val) -> Optional[float]:
 
 def log_signal(signal_dict: dict) -> bool:
     """Insert signal into DB. Returns True if newly inserted, False if duplicate."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     try:
         now = datetime.now(timezone.utc).isoformat()
         cur = conn.execute(
@@ -226,7 +226,7 @@ def check_cooccurrence(
     mins = tf_minutes.get(timeframe, 1440)
     window_secs = window_bars * mins * 60
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     try:
         rows = conn.execute(
             """
@@ -640,7 +640,7 @@ def detect_signal_9(df: pd.DataFrame, symbol: str, tf: str, bull_score: int,
         if bull_score < 11:
             return None
 
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(DB_PATH, timeout=30)
         levels = conn.execute(
             """
             SELECT level_price, significance_score, touch_count, duration_bars
@@ -717,7 +717,7 @@ def _db_onset_blocked(
         with a hard minimum 3-bar cooldown to prevent same-bar duplicates
     """
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(DB_PATH, timeout=30)
         row = conn.execute(
             """SELECT status, fired_at, exit_bar, exit_timestamp, entry_price
                FROM signal_log

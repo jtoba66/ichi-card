@@ -247,7 +247,7 @@ def run_tracker() -> dict:
     from ichi.indicators.ichimoku import ichimoku
     from ichi.indicators.precompute import precompute
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     open_signals = [dict(r) for r in conn.execute(
         "SELECT * FROM signal_log WHERE status = 'OPEN'"
@@ -291,7 +291,7 @@ def run_tracker() -> dict:
             errors += sigs_count
             continue
 
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(DB_PATH, timeout=30)
         try:
             # ── OPEN signals ─────────────────────────────────────────────────
             for sig in by_sym_tf.get((symbol, timeframe), []):
@@ -394,7 +394,7 @@ def _log_signals_batch(signals: list) -> int:
     if not signals:
         return 0
     now = datetime.now(timezone.utc).isoformat()
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     inserted = 0
     try:
         for sig in signals:
@@ -495,7 +495,7 @@ def clear_backfill() -> int:
 
     Returns the number of signal rows deleted.
     """
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     try:
         # Use a subquery to avoid the 999-variable SQLite limit on large datasets
         conn.execute(
@@ -613,7 +613,7 @@ def run_signal_ic(
 
     signal_filter and tf_filter narrow which rows are included.
     """
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     all_rows = [dict(r) for r in conn.execute("SELECT * FROM signal_log").fetchall()]
     conn.close()
@@ -903,7 +903,7 @@ def run_signal_equity(
         7: "Four-Level Retest", 9: "Chikou S/R Retest",
     }
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     rows = [
         dict(r) for r in conn.execute(
