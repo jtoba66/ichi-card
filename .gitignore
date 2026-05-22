@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+.pytest_cache/
+.ruff_cache/
+
+# Pyright
+.pyright/
+
+# OS
+.DS_Store
+
+# Data — large / generated, never commit; rsync separately to server
+data/ohlcv/
+data/universe/
+data/signals.db
+data/snapshot*.parquet
+data/scan_state.json
+data/alerts_state.json
+data/score_history.json
+data/alerts.log
+data/universe_map.json
+data/logs/
+data/exit_strategy_comparison*.json
+
+# Chart images
+*.png
+
+# Claude internals
+.claude/

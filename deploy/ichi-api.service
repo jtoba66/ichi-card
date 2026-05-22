@@ -1,0 +1,18 @@
+[Unit]
+Description=Ichi Scorecard FastAPI backend
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=joseph
+WorkingDirectory=/home/joseph/ichi-scorecard
+ExecStart=/home/joseph/ichi-scorecard/.venv/bin/uvicorn ichi.api.main:app --port 8000 --host 0.0.0.0 --log-level warning
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONPATH=/home/joseph/ichi-scorecard/src
+
+[Install]
+WantedBy=multi-user.target

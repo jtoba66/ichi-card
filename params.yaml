@@ -1,0 +1,100 @@
+# ichi-scorecard — tunable rule parameters
+# All values tagged [default-guess] in the spec live here.
+# Canonical Ichimoku params (9/26/52/26) are NOT here — they are frozen.
+# Edit this file to adjust thresholds; the calibrate command reads it on every run.
+# Capped per-iteration change: 20% max per parameter.
+
+# ── Slope / direction thresholds (shared across TK/KJ rules) ──────────────────
+slope_lookback: 5               # bars for slope_pct calculation
+slope_rising_threshold: 0.33    # % change over lookback to be "rising" [M4 calibrated: was 0.3]
+slope_falling_threshold: -0.3   # % change over lookback to be "falling"
+
+# ── Momentum angle thresholds ─────────────────────────────────────────────────
+angle_gte10_threshold: 10.0     # degrees — AngleGte10Rule
+angle_gte20_threshold: 20.0     # degrees — AngleGte20Rule
+
+# ── AbovePriceRule ────────────────────────────────────────────────────────────
+above_price_high_threshold: 0.05  # >5% above past price = "High" badge
+
+# ── HighVolumeRule ────────────────────────────────────────────────────────────
+high_volume_multiplier: 1.5     # volume > N × 20-bar SMA = high
+high_volume_sma_period: 20
+
+# ── OBVRisingRule ─────────────────────────────────────────────────────────────
+obv_lookback: 10                # compare OBV[i] vs OBV[i - N]
+
+# ── NoDivRule ─────────────────────────────────────────────────────────────────
+no_div_window: 30               # bars to search for bearish RSI divergence
+no_div_pivot_lookback: 5        # swing pivot lookback for divergence detection
+
+# ── TripleSweepRule ───────────────────────────────────────────────────────────
+triple_sweep_pivot_lookback: 20
+triple_sweep_window: 60         # bars to scan for sweep events
+triple_sweep_tolerance: 0.005   # 0.5% — low/close must be within this of pivot level
+
+# ── TKBounceRule ─────────────────────────────────────────────────────────────
+tk_bounce_lookback: 5           # bars to look back for bounce event
+tk_bounce_tolerance: 0.01       # 1% — low must be within this of TK value
+tk_bounce_vol_multiplier: 1.5   # volume threshold for "super strong" bounce
+tk_bounce_vol_sma: 20
+
+# ── ChikouClearedRule ─────────────────────────────────────────────────────────
+chikou_cleared_pivot_lookback: 5
+chikou_cleared_window: 50       # bars to scan for swing highs
+chikou_cleared_n_pivots: 3      # chikou must clear this many top swing highs
+
+# ── NoTKCrossRule ─────────────────────────────────────────────────────────────
+no_tk_cross_lookback: 10        # bars to check for recent TK/KJ bearish cross
+
+# ── KijunFlatRule ─────────────────────────────────────────────────────────────
+kijun_flat_lookback: 10
+kijun_flat_threshold: 0.3       # % — KJ slope below this = "Flat"
+
+# ── AwayFromSpanBRule ─────────────────────────────────────────────────────────
+away_from_spanb_threshold: 0.03  # 3% — price must be this far from SpanB to pass
+
+# ── TKMagnetRule ─────────────────────────────────────────────────────────────
+tk_magnet_warning_bars: 10      # consecutive bars near TK to trigger warning
+tk_magnet_tolerance: 0.015      # 1.5% — "near TK" band
+
+# ── KJBalancedRule ────────────────────────────────────────────────────────────
+kj_balanced_window: 50
+kj_balanced_low_pct: 0.30       # KJ must be above this percentile of 50-bar range
+kj_balanced_high_pct: 0.70      # KJ must be below this percentile of 50-bar range
+
+# ── NoFakeoutRule ─────────────────────────────────────────────────────────────
+no_fakeout_lookback: 10
+no_fakeout_reversal_window: 3   # bars within which reversal counts as fakeout
+
+# ── KJAlignedRule ─────────────────────────────────────────────────────────────
+kj_aligned_trend_lookback: 50
+kj_aligned_slope_lookback: 10
+
+# ── TKNoCurlRule / KJNoCurlRule ───────────────────────────────────────────────
+tk_no_curl_lookback: 3          # bars of consistent slope sign = "no curl"
+kj_no_curl_lookback: 3
+
+# ── CloudCurlingRule ─────────────────────────────────────────────────────────
+cloud_curling_just_turned_bars: 5
+cloud_curling_slope_lookback: 5
+
+# ── FwdThickRule ─────────────────────────────────────────────────────────────
+fwd_thick_threshold: 0.01       # 1% of price — minimum forward cloud thickness
+
+# ── SanyakuRule ───────────────────────────────────────────────────────────────
+sanyaku_transition_window: 5    # bars — "fresh" sanyaku break window
+
+# ── KumoTrapRule ─────────────────────────────────────────────────────────────
+kumo_trap_lookback: 5
+
+# ── SSBDirectionRule ─────────────────────────────────────────────────────────
+ssb_direction_lookback: 10
+ssb_direction_threshold: 0.3    # % — SpanB slope threshold for Rising/Falling
+
+# ── NoBearSetupRule ───────────────────────────────────────────────────────────
+no_bear_setup_threshold: 5      # bear_score must be < this to pass (out of 18)
+
+# ── Regime filter (ADX-based) ─────────────────────────────────────────────────
+adx_period: 14
+adx_trending_threshold: 25.0    # ADX >= this → trending regime (act on bull signals)
+adx_strong_threshold: 40.0      # ADX >= this → strong trend (highest conviction)
