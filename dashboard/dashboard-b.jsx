@@ -91,12 +91,11 @@ function AbbTip({ children, id, style }) {
 function useEvents() {
   const [data, setData] = useSt(window.__EVENTS_DATA || null);
   useEff(() => {
-    if (!data) {
-      fetch(window.API_BASE + '/api/events')
-        .then(r => r.json())
-        .then(d => { window.__EVENTS_DATA = d; setData(d); })
-        .catch(() => {});
-    }
+    // Always fetch fresh on mount — don't rely on potentially stale window cache
+    fetch(window.API_BASE + '/api/events')
+      .then(r => r.json())
+      .then(d => { window.__EVENTS_DATA = d; setData(d); })
+      .catch(() => {});
     const onEvents = (e) => setData(e.detail);
     window.addEventListener('ichi:events', onEvents);
     return () => window.removeEventListener('ichi:events', onEvents);
