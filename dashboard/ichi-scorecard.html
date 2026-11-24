@@ -333,6 +333,53 @@
     white-space: nowrap;
   }
 
+  /* ── Validated card grid (DailyScan ≥13 section) ─────────────────────────── */
+  .section-banner {
+    padding: 7px 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    border-top: 1px solid transparent;
+    border-bottom: 1px solid transparent;
+    margin: 0 0 8px 0;
+  }
+  .validated-banner {
+    background: #00ff8808;
+    border-color: #00ff8822;
+    color: #00ff88cc;
+  }
+  .developing-banner {
+    background: #ffaa0008;
+    border-color: #ffaa0022;
+    color: #ffaa0099;
+    margin-top: 12px;
+  }
+  .validated-card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px;
+    padding: 0 0 12px 0;
+  }
+  .validated-card {
+    background: #00ff8806;
+    border: 1px solid #00ff8822;
+    border-radius: 8px;
+    padding: 10px 12px;
+    cursor: pointer;
+    transition: border-color 0.15s, transform 0.1s;
+  }
+  .validated-card:hover { border-color: #00ff8855; transform: translateY(-1px); }
+  .vc-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+  .vc-score-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .vc-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
+  .vc-flags { display: flex; flex-wrap: wrap; gap: 3px; }
+
+  /* ── Coil ingredients breakdown ──────────────────────────────────────────── */
+  .coil-ingredients { font-size: 9.5px; margin-top: 4px; line-height: 1.6; }
+
   .sort-arrow { color: var(--dim2); margin-left: 2px; font-size: 10px; }
   .sort-arrow.active { color: var(--accent); }
 
@@ -1049,7 +1096,7 @@
   <script type="text/babel" src="components.jsx?v=14"></script>
   <script type="text/babel" src="token-detail.jsx?v=14"></script>
   <script type="text/babel" src="scanners.jsx?v=14"></script>
-  <script type="text/babel" src="dashboard-b.jsx?v=14"></script>
+  <script type="text/babel" src="dashboard-b.jsx?v=15"></script>
   <script type="text/babel" src="app.jsx?v=14"></script>
 </body>
 </html>

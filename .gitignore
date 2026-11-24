@@ -31,3 +31,12 @@ data/exit_strategy_comparison*.json
 
 # Claude internals
 .claude/
+
+# Local temp / cache
+data/scan_cache.json
+data/ohlcv_full/
+data/ohlcv_hist/
+data/track_stats.json
+data/notif_state.json
+Users/
+*.bak*

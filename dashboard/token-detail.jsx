@@ -46,7 +46,7 @@ function TokenDetail({ coin, onClose }) {
           <div className="td-head-left">
             <div className="td-sym mono">{coin.sym}</div>
             <span className="sector-pill big">{coin.sector}</span>
-            <span className="td-univ dim mono">Binance · USDT perp</span>
+            <span className="td-univ dim mono">USDT perp · top-200 universe</span>
           </div>
           <div className="td-head-right">
             <div className="td-score-big mono" style={{ color: scoreColor(coin.score1d) }}>

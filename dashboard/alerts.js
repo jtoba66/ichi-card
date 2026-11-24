@@ -125,19 +125,41 @@
     7: 'Four-Level Retest',   9: 'Chikou S/R Retest',
   };
 
+  const TIER_COLORS = { 1: '#fbbf24', 2: '#f97316', 3: '#4ade80' };
+  const TIER_EMOJIS = { 1: '🔥', 2: '🟡', 3: '🟢' };
+
+  function _getSignalFilter(sig) {
+    try {
+      const meta = typeof sig.signal_metadata === 'string'
+        ? JSON.parse(sig.signal_metadata || '{}')
+        : (sig.signal_metadata || {});
+      return meta.filter || null;
+    } catch { return null; }
+  }
+
   function classifySignalAlert(sig) {
-    const name = SIGNAL_NAMES[sig.signal_type] || `Signal ${sig.signal_type}`;
-    const sub  = sig.signal_subtype ? ` (${sig.signal_subtype})` : '';
-    const hosoda = sig.hosoda_active ? ' ⚡ HOSODA' : '';
-    const sym  = sig.symbol.replace('USDT', '');
+    const name   = SIGNAL_NAMES[sig.signal_type] || `Signal ${sig.signal_type}`;
+    const sub    = sig.signal_subtype ? ` (${sig.signal_subtype})` : '';
+    const hosoda = sig.hosoda_active ? ' ⚡' : '';
+    const sym    = sig.symbol.replace('USDT', '');
+    const filt   = _getSignalFilter(sig);
+    const tier   = filt?.tier;
+    const tierStr = tier ? ` [T${tier}]` : '';
+    const emoji   = TIER_EMOJIS[tier] || '🔔';
+    const color   = TIER_COLORS[tier] || '#7c3aed';
+    const lines   = [`Entry: ${sig.entry_price} · QS: ${sig.quality_score || 0}`];
+    if (filt?.chikou_ok)          lines.push('✓ Chikou confirmed');
+    if (filt?.cloud_thickness >= 5) lines.push(`Cloud: ${filt.cloud_thickness.toFixed(1)}% thick`);
+    if (filt?.priority_boost)     lines.push('⚡ Bearish twist 6-10b ago');
     return {
       priority: 'signal',
-      label:    `[SIGNAL] ${name}${sub}: ${sym} ${sig.timeframe}${hosoda}`,
-      body:     `Entry: ${sig.entry_price} · Score: ${sig.bull_score}/18 · ${sig.cloud_state}`,
+      label:    `${emoji}${tierStr} ${name}${sub}: ${sym} ${sig.timeframe}${hosoda}`,
+      body:     lines.join(' · '),
       symbol:   sym,
       tf:       sig.timeframe,
       type:     `SIG${sig.signal_type}${sig.signal_subtype || ''}`,
-      color:    '#7c3aed',
+      color,
+      tier,
     };
   }
 
@@ -147,6 +169,10 @@
       const key = `signal:${sig.signal_id}`;
       if (_seen.has(key)) return;
       _seen.add(key);
+
+      // Skip suppressed signals (blacklisted, BTC below cloud, signal 6 on 1w)
+      const filt = _getSignalFilter(sig);
+      if (filt && filt.skip) return;
 
       const classified = classifySignalAlert(sig);
       const ts = new Date().toISOString();
@@ -158,10 +184,11 @@
         symbol:   classified.symbol + '/USDT',
         tf:       classified.tf,
         summary:  classified.body,
-        color:    '#7c3aed',
+        color:    classified.color,
         read:     false,
         isSignal: true,
         hosoda:   !!sig.hosoda_active,
+        tier:     classified.tier,
       };
       _history.unshift(entry);
       if (_history.length > 200) _history.pop();
@@ -174,7 +201,8 @@
       _soundAlert('signal');
       _browserNotif(classified.label, classified.body, true);
 
-      // Purple toast, 15s duration
+      // Tier-colored toast, 15s duration
+      const toastColor = classified.color;
       const container = document.getElementById('toast-container');
       if (container) {
         const el = document.createElement('div');
@@ -182,18 +210,18 @@
           'pointer-events:auto',
           'padding:10px 16px',
           'border-radius:6px',
-          'border:1px solid #7c3aed88',
+          `border:1px solid ${toastColor}88`,
           'background:#1a0f2eee',
-          'color:#c4b5fd',
+          `color:${toastColor}`,
           'font-family:JetBrains Mono,monospace',
           'font-size:11px',
           'line-height:1.5',
           'max-width:360px',
-          'box-shadow:0 4px 20px #7c3aed44',
+          `box-shadow:0 4px 20px ${toastColor}44`,
           'opacity:0',
           'transition:opacity 0.25s',
         ].join(';');
-        el.innerHTML = `<span style="color:#7c3aed;font-weight:700">${classified.label}</span><br><span style="color:#a78bfa">${classified.body}</span>`;
+        el.innerHTML = `<span style="color:${toastColor};font-weight:700">${classified.label}</span><br><span style="color:#e0e0e0">${classified.body}</span>`;
         container.appendChild(el);
         requestAnimationFrame(() => { el.style.opacity = '1'; });
         setTimeout(() => {

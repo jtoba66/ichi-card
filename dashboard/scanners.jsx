@@ -3,6 +3,31 @@
 const { useState: useStateS, useMemo: useMemoS } = React;
 
 // ─── 3a. Daily Scan ──────────────────────────────────────────────────────────
+const VALIDATED_THRESHOLD = 13;
+
+function ValidatedCard({ c, rank, scoreField, bearMode }) {
+  return (
+    <div className="validated-card" onClick={() => window.__openToken(c.sym)}>
+      <div className="vc-top">
+        <WatchStar sym={c.sym} compact />
+        <span className="mono dim" style={{ fontSize: 10 }}>#{rank}</span>
+        <span className="sym mono">{c.sym.replace('/USDT','')}</span>
+        <span className="sector-pill">{c.sector}</span>
+      </div>
+      <div className="vc-score-row">
+        <ScoreBadge coin={c} score={c[scoreField]} tf={bearMode ? 'bear' : '1d'} />
+        <Sparkline data={c.scoreHist} />
+      </div>
+      <div className="vc-badges">
+        <CloudBadge cloud={c.cloud} />
+        <FwdCloud fwd={c.fwdCloud} />
+        <AdxBadge adx={c.adx} compact />
+      </div>
+      <div className="vc-flags"><Flags flags={c.flags} /></div>
+    </div>
+  );
+}
+
 function DailyScanResults({ minScore, regime, watchOnly }) {
   const { COINS } = window.ICHI_DATA;
   const [bearMode, setBearMode] = useStateS(false);
@@ -23,6 +48,20 @@ function DailyScanResults({ minScore, regime, watchOnly }) {
     });
   }, [minScore, regime, sortKey, sortDir, watchOnly, inWatch, scoreField]);
 
+  // Validated: ≥13 from the main filtered set (respects minScore, regime, watch)
+  const validatedRows = !bearMode ? rows.filter(c => c[scoreField] >= VALIDATED_THRESHOLD) : [];
+
+  // Developing: ALWAYS show 9–12 range regardless of minScore, so you can see what's approaching.
+  // Respects regime and watch filters but ignores minScore.
+  const developingRows = useMemoS(() => {
+    if (bearMode) return rows;
+    let r = COINS.filter(c => c[scoreField] >= 9 && c[scoreField] < VALIDATED_THRESHOLD);
+    if (regime === 'TRENDING') r = r.filter(c => c.adx >= 25);
+    if (regime === 'STRONG')   r = r.filter(c => c.adx >= 40);
+    if (watchOnly) r = r.filter(c => inWatch(c.sym));
+    return r.sort((a, b) => b[scoreField] - a[scoreField]);
+  }, [bearMode, regime, watchOnly, inWatch, scoreField, COINS]);
+
   const modeBtn = (label, active, onClick) => (
     <button onClick={onClick} style={{
       fontFamily: "'JetBrains Mono',monospace", fontSize: 11, fontWeight: 600,
@@ -35,14 +74,14 @@ function DailyScanResults({ minScore, regime, watchOnly }) {
   );
 
   return (
-    <div className="panel">
-      <div className="panel-head">
-        <h3>
-          {bearMode ? 'Bear Scan' : 'Daily Scan'}
+    <div className="panel" style={{ background: bearMode ? '#0d0009' : undefined }}>
+      <div className="panel-head" style={{ borderBottom: bearMode ? '1px solid #ff386033' : undefined }}>
+        <h3 style={{ color: bearMode ? '#ff3860' : undefined }}>
+          {bearMode ? '▼ Bear Scan' : '▲ Daily Scan'}
           <span className="dim"> — 1d {bearMode ? 'bear' : 'bull'} score</span>
           <InfoTip size="md">{bearMode
             ? <span>Bear score: how many of the 18 rules are in a <b>bearish state</b>. High = multiple warning signs firing simultaneously. Not just "not bullish" — actively bearish geometry.</span>
-            : <span>Bull score: how many of the 18 Ichimoku rules are in a <b>bullish state</b> right now. 18/18 = textbook perfect setup. ≥ 11 = structurally strong enough to consider.</span>
+            : <span>Bull score: how many of the 18 Ichimoku rules are in a <b>bullish state</b> right now. 18/18 = textbook perfect setup. ≥ 13 = walk-forward validated signal threshold.</span>
           }</InfoTip>
         </h3>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -52,50 +91,70 @@ function DailyScanResults({ minScore, regime, watchOnly }) {
           {!bearMode && <div className="validated-stat-badge">≥13 avg +12% / 30d · 100% OOS · 7 windows</div>}
         </div>
       </div>
-      <div className="table-wrap">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th style={{ width: 32 }}></th>
-              <th style={{ width: 44 }}>#</th>
-              <SortHeader id="sym" label="Symbol" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-              <th>Sector</th>
-              <SortHeader id={scoreField} label="Score" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-              <th>Trend 7d<InfoTip>7-day history of the daily score (oldest left → today right). The ▲/▼ number next to the chart shows the net change — ▲3 means the score rose 3 points this week, ▼2 means it fell 2. A rising trend on a coin already at ≥11 signals strengthening momentum.</InfoTip></th>
-              <SortHeader id="adx" label="ADX" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" tip="Average Directional Index — measures trend strength regardless of direction. < 20 = flat/choppy. ≥ 25 = trending. ≥ 40 = strong sustained move. The Regime filter uses these thresholds." />
-              <th style={{ textAlign: 'right' }}>+DI / −DI<InfoTip>Directional movement. <b>+DI {'>'} −DI</b> = buyers dominant (green). <b>−DI {'>'} +DI</b> = sellers dominant (red). Part of the ADX system.</InfoTip></th>
-              <th>Cloud<InfoTip>Price vs the Ichimoku cloud. <b>Above ☁</b> = bullish zone. <b>IN ☁</b> = inside cloud, indecision. <b>Below ☁</b> = bearish zone.</InfoTip></th>
-              <th>Fwd ☁<InfoTip>The cloud <b>26 bars ahead</b>. ✓ Bull = future cloud is green (rising support). ✗ Bear = red cloud ahead (resistance building). Forward-looking — acts as early warning.</InfoTip></th>
-              <th>Flags<InfoTip>Signal flags that fire on top of the score when specific patterns are detected. <b>SQUEEZE</b> = Bollinger Band volatility compressed, a big move is statistically due. <b>VOL 2×+</b> = volume spike above average. <b>RSI-DIV↑</b> = price dipping but momentum recovering (hidden buying). <b>RS:STRONG↑</b> = outperforming BTC. Multiple flags at once strengthen the case.</InfoTip></th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 && (
-              <tr><td colSpan={11}><EmptyState
-                title={watchOnly ? 'No watchlisted coins meet the filter.' : 'No coins match the current filter.'}
-                hint={watchOnly ? 'Turn off Watch-only or ★ more coins.' : `Try lowering min score (now ${minScore}/18) or relaxing regime (now ${regime}).`}
-              /></td></tr>
-            )}
-            {rows.map((c, i) => {
-              const VALIDATED_THRESHOLD = 13;
-              const prevAbove = i > 0 && rows[i-1][scoreField] >= VALIDATED_THRESHOLD;
-              const thisAbove = c[scoreField] >= VALIDATED_THRESHOLD;
-              const showDivider = !bearMode && !prevAbove && thisAbove === false && i > 0 && rows[i-1][scoreField] >= VALIDATED_THRESHOLD;
-              const isNoisezone = !bearMode && c[scoreField] < VALIDATED_THRESHOLD;
-              return (
-                <React.Fragment key={c.sym}>
-                  {!bearMode && i > 0 && rows[i-1][scoreField] >= VALIDATED_THRESHOLD && c[scoreField] < VALIDATED_THRESHOLD && (
-                    <tr className="score-divider-row">
-                      <td colSpan={11}>
-                        <span className="score-divider-label">── below validated threshold (≥13) · signal becomes noise ──</span>
-                      </td>
-                    </tr>
-                  )}
-                  <tr onClick={() => window.__openToken(c.sym)} title="Click to open full detail"
-                      className={isNoisezone ? 'row-noisezone' : ''}>
+
+      {rows.length === 0 && (
+        <EmptyState
+          title={watchOnly ? 'No watchlisted coins meet the filter.' : 'No coins match the current filter.'}
+          hint={watchOnly ? 'Turn off Watch-only or ★ more coins.' : `Try lowering min score (now ${minScore}/18) or relaxing regime (now ${regime}).`}
+        />
+      )}
+
+      {/* ── Validated section (≥13) — card grid ── */}
+      {!bearMode && validatedRows.length > 0 && (
+        <>
+          <div className="section-banner validated-banner">
+            <span>✓ Validated signals — ≥13/18</span>
+            <span className="mono dim" style={{ fontSize: 10 }}>walk-forward validated · 100% positive OOS · {validatedRows.length} coins</span>
+          </div>
+          <div className="validated-card-grid">
+            {validatedRows.map((c, i) => (
+              <ValidatedCard key={c.sym} c={c} rank={i+1} scoreField={scoreField} bearMode={bearMode} />
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* ── Developing / below threshold section ── */}
+      {developingRows.length > 0 && (
+        <>
+          {!bearMode && (
+            <div className="section-banner developing-banner">
+              <span>○ Approaching — score 9–12 · not yet validated</span>
+              <span className="mono dim" style={{ fontSize: 10 }}>
+                {developingRows.filter(c => c.scoreTrend >= 2).length} rising ↑ · {developingRows.length} coins · always shown
+              </span>
+            </div>
+          )}
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th style={{ width: 32 }}></th>
+                  <th style={{ width: 44 }}>#</th>
+                  <SortHeader id="sym" label="Symbol" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <th>Sector</th>
+                  <SortHeader id={scoreField} label="Score" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <th>Trend 7d<InfoTip>7-day history of the daily score (oldest left → today right). The ▲/▼ number shows the net change.</InfoTip></th>
+                  <SortHeader id="adx" label="ADX" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" tip="Average Directional Index — measures trend strength regardless of direction. < 20 = flat/choppy. ≥ 25 = trending. ≥ 40 = strong sustained move." />
+                  <th style={{ textAlign: 'right' }}>+DI / −DI<InfoTip>Directional movement. <b>+DI {'>'} −DI</b> = buyers dominant (green). <b>−DI {'>'} +DI</b> = sellers dominant (red).</InfoTip></th>
+                  <th>Cloud<InfoTip>Price vs the Ichimoku cloud. <b>Above ☁</b> = bullish zone. <b>IN ☁</b> = inside cloud, indecision. <b>Below ☁</b> = bearish zone.</InfoTip></th>
+                  <th>Fwd ☁<InfoTip>The cloud <b>26 bars ahead</b>. ✓ Bull = future cloud is green. ✗ Bear = red cloud ahead.</InfoTip></th>
+                  <th>Flags<InfoTip>Signal flags: SQUEEZE = volatility compressed. VOL = volume spike. RSI-DIV↑ = bullish divergence. RS:STRONG↑ = outperforming BTC.</InfoTip></th>
+                </tr>
+              </thead>
+              <tbody>
+                {developingRows.map((c, i) => {
+                  const rising = !bearMode && c.scoreTrend > 0;
+                  const approaching = !bearMode && c[scoreField] >= 11 && c.scoreTrend >= 2;
+                  return (
+                  <tr key={c.sym} onClick={() => window.__openToken(c.sym)} title="Click to open full detail"
+                      style={approaching ? { background: '#ffaa0008', borderLeft: '2px solid #ffaa0033' } : undefined}>
                     <td><WatchStar sym={c.sym} compact /></td>
-                    <td className="mono dim">{String(i + 1).padStart(2, '0')}</td>
-                    <td><span className="sym mono">{c.sym}</span></td>
+                    <td className="mono dim">{String(validatedRows.length + i + 1).padStart(2, '0')}</td>
+                    <td>
+                      <span className="sym mono">{c.sym}</span>
+                      {approaching && <span style={{ fontSize: 9, fontFamily: 'JetBrains Mono,monospace', color: '#ffaa00', marginLeft: 5, background: '#ffaa0018', border: '1px solid #ffaa0033', borderRadius: 3, padding: '1px 4px' }}>→13</span>}
+                    </td>
                     <td><span className="sector-pill">{c.sector}</span></td>
                     <td><ScoreBadge coin={c} score={c[scoreField]} tf={bearMode ? 'bear' : '1d'} /></td>
                     <td><Sparkline data={c.scoreHist} /></td>
@@ -107,12 +166,13 @@ function DailyScanResults({ minScore, regime, watchOnly }) {
                     <td><FwdCloud fwd={c.fwdCloud} /></td>
                     <td><Flags flags={c.flags} /></td>
                   </tr>
-                </React.Fragment>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -140,8 +200,16 @@ function MultiTFResults({ watchOnly, minAligned }) {
   return (
     <div className="panel">
       <div className="panel-head">
-        <h3>Multi-TF Scan <span className="dim">— alignment across 4h · 1d · 1w</span><InfoTip size="md"><span>Shows every coin scored on all three timeframes simultaneously. Rows highlighted in teal have all three (4h, 1d, 1w) scoring ≥ 11/18 — these are the <b>highest-conviction setups</b> where short, medium, and long-term all agree.</span></InfoTip></h3>
-        <div className="panel-meta mono">{rows.length} results · {rows.filter(r => r.aligned === 3).length} fully aligned</div>
+        <h3>Multi-TF Scan <span className="dim">— alignment across 4h · 1d · 1w</span><InfoTip size="md"><span>Shows every coin scored on all three timeframes simultaneously. Rows highlighted in teal have all three (4h, 1d, 1w) scoring ≥ 11/18 — these are the <b>highest-conviction setups</b> where short, medium, and long-term all agree. Note: alignment uses ≥11 threshold; look for coins where all TF scores also reach ≥13 for validated-grade alignment.</span></InfoTip></h3>
+        <div className="panel-meta mono">
+          {rows.length} results · {rows.filter(r => r.aligned === 3).length} fully aligned ≥11
+          <span className="dim"> · alignment threshold: ≥11/18 per TF</span>
+          {rows.filter(r => [r.score4h, r.score1d, r.score1w].every(s => s >= 13)).length > 0 && (
+            <span style={{ color: '#00ff88', marginLeft: 8 }}>
+              · {rows.filter(r => [r.score4h, r.score1d, r.score1w].every(s => s >= 13)).length} triple ≥13
+            </span>
+          )}
+        </div>
       </div>
       <div className="table-wrap">
         <table className="data-table">
@@ -222,6 +290,18 @@ function CoiledSpringResults({ weeklyMin, dailyMax }) {
                 {c.coil.toFixed(1)}
               </div>
               <div className="coil-score-label">coil score<InfoTip>Composite score = <b>(1w score − 1d score)</b> + <b>+2</b> if ADX &lt; 20 (trend is flat, more room to explode) + <b>+3</b> if price is inside the cloud (maximum compression). Typical range is 4–15. Score ≥ 6 is worth watching. ≥ 10 = strong compression with high expansion potential.</InfoTip></div>
+              <div className="coil-ingredients mono dim">
+                {(() => {
+                  const compression = c.score1w - c.score1d;
+                  const adxBonus = c.adx < 20 ? 2 : 0;
+                  const cloudBonus = c.cloud === 'IN' ? 3 : 0;
+                  return <span>
+                    compress <span style={{ color: '#e0e0e0' }}>{compression}</span>
+                    {adxBonus > 0 && <> · flat ADX <span style={{ color: '#ffaa00' }}>+{adxBonus}</span></>}
+                    {cloudBonus > 0 && <> · IN ☁ <span style={{ color: '#7c3aed' }}>+{cloudBonus}</span></>}
+                  </span>;
+                })()}
+              </div>
             </div>
             <div className="coil-tf-row">
               <div><span className="dim mono">1w</span> <span className="mono" style={{ color: scoreColor(c.score1w) }}>{c.score1w}</span></div>
@@ -259,7 +339,8 @@ function SectorRotationResults() {
             Leaderboard
             <span className="mono dim" style={{ fontSize: 10, fontWeight: 400, display: 'flex', gap: 10 }}>
               <span>avg score<InfoTip>Average 1-day bull score across every coin in this sector. Higher = the sector is broadly in bullish Ichimoku structure, not just 1–2 coins pulling up the average.</InfoTip></span>
-              <span>% ≥11<InfoTip>Percentage of coins in this sector scoring ≥ 11/18 (the "structurally bullish" threshold). High % means broad sector participation — the move isn't concentrated.</InfoTip></span>
+              <span>% ≥13<InfoTip>Percentage of coins scoring ≥ 13/18 — the walk-forward validated signal threshold. High % = broad sector participation with validated-strength setups.</InfoTip></span>
+              <span>% ≥11<InfoTip>Percentage scoring ≥ 11/18 (approaching threshold). Shows developing setups.</InfoTip></span>
               <span>ADX<InfoTip>Average ADX across the sector. ≥ 25 = sector is trending directionally. ≥ 40 = strong sustained move.</InfoTip></span>
               <span>n<InfoTip>Number of coins tracked in this sector within the 200-coin universe.</InfoTip></span>
             </span>
@@ -279,7 +360,8 @@ function SectorRotationResults() {
                 </div>
               </div>
               <div className="sector-row-meta">
-                <span className="sector-pct mono">{s.pctAbove11}% ≥11</span>
+                {s.pctAbove13 != null && <span className="sector-pct mono" style={{ color: s.pctAbove13 > 0 ? '#00ff88' : '#555' }}>{s.pctAbove13}% ≥13</span>}
+                <span className="sector-pct mono dim">{s.pctAbove11}% ≥11</span>
                 <AdxBadge adx={s.avgAdx} compact />
                 <span className="dim mono">n={s.members}</span>
               </div>
@@ -292,7 +374,7 @@ function SectorRotationResults() {
             <div key={s.sector} className="sector-drill-block">
               <div className="sector-drill-head">
                 <span className="sector-pill big">{s.sector}</span>
-                <span className="dim mono">avg {s.avgBull.toFixed(1)}/18 · {s.pctAbove11}% ≥11</span>
+                <span className="dim mono">avg {s.avgBull.toFixed(1)}/18 · {s.pctAbove13 ?? s.pctAbove11}% ≥13 · {s.pctAbove11}% ≥11</span>
               </div>
               <div className="sector-drill-grid">
                 {s.top.map(c => (

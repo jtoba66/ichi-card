@@ -62,17 +62,25 @@ def fetch_ohlcv(
     symbol: str,
     timeframe: str,
     exchange_id: str | None = None,
+    cache_only: bool = False,
 ) -> pd.DataFrame:
     """Fetch OHLCV from exchange, using local parquet cache for incremental updates.
 
     If exchange_id is None, looks up the exchange from the universe map (defaults to binance).
     Returns DataFrame indexed by UTC timestamp with columns: open, high, low, close, volume.
+
+    cache_only=True: return local parquet without any exchange call. Used by backfill
+    workers to avoid 180+ parallel API requests when all data is already cached locally.
     """
     if exchange_id is None:
         exchange_id = get_exchange_for(symbol)
 
-    exchange = _make_exchange(exchange_id)
     existing = load_ohlcv(symbol, timeframe, exchange_id)
+
+    if cache_only:
+        return existing if existing is not None else pd.DataFrame(columns=_COLUMNS[1:])
+
+    exchange = _make_exchange(exchange_id)
 
     if existing is not None and not existing.empty:
         last_ts = existing.index[-1]

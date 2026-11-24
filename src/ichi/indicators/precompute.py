@@ -89,12 +89,14 @@ def precompute(df: pd.DataFrame) -> pd.DataFrame:
     df["_tk_cross_bullish"] = (df["tk"] > df["kj"]) & (df["tk"].shift(1) <= df["kj"].shift(1))
     df["_tk_cross_bullish_bars_ago"] = bars_since(df["_tk_cross_bullish"])
 
-    # Chikou cloud position (chikou is close shifted back 26 bars — compare against span_a/b at same index)
-    _cs = df["chikou"]
-    _cs_cloud_min = df[["span_a", "span_b"]].min(axis=1)
-    _cs_cloud_max = df[["span_a", "span_b"]].max(axis=1)
-    df["_chikou_in_cloud"] = (_cs >= _cs_cloud_min) & (_cs <= _cs_cloud_max)
-    df["_chikou_above_cloud"] = _cs > _cs_cloud_max
+    # Chikou cloud position: chikou is the current close plotted 26 bars in the past.
+    # Correct geometry: compare current close[i] against the cloud that was present 26 bars ago
+    # (span_a[i-26] / span_b[i-26]).  Using df["chikou"] = close.shift(-26) is always NaN
+    # at the last 26 bars, making these flags always False at the current bar.
+    _past_cloud_min = df[["span_a", "span_b"]].min(axis=1).shift(26)
+    _past_cloud_max = df[["span_a", "span_b"]].max(axis=1).shift(26)
+    df["_chikou_in_cloud"] = (df["close"] >= _past_cloud_min) & (df["close"] <= _past_cloud_max)
+    df["_chikou_above_cloud"] = df["close"] > _past_cloud_max
 
     # Chikou above past price: current close vs close 26 bars ago (same geometric check as chikou span)
     df["_chikou_above_past_price"] = df["close"] > df["close"].shift(26)

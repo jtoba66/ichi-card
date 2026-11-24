@@ -2,6 +2,23 @@
 
 const { useState: useStateA, useEffect: useEffectA, useRef: useRefA } = React;
 
+// Fetches BTC regime once and renders the shared BtcRegimeBanner from dashboard-b.jsx.
+// Polling interval matches the signals cache refresh (5 min).
+function BtcRegimeBannerA() {
+  const [regime, setRegime] = useStateA('unknown');
+  useEffectA(() => {
+    const load = () =>
+      fetch(window.API_BASE + '/api/signals?tab=setups')
+        .then(r => r.json())
+        .then(d => { if (d.btc_regime) setRegime(d.btc_regime); })
+        .catch(() => {});
+    load();
+    const id = setInterval(load, 5 * 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
+  return BtcRegimeBanner({ regime });
+}
+
 function useCountdown() {
   const [secsLeft, setSecsLeft] = useStateA(() => {
     if (!window.__nextRefresh) return null;
@@ -34,7 +51,7 @@ function TopBar({ refreshing, dashView, setDashView, notifCount, onBellClick }) 
   const stats = [
     { k: 'Scan', v: <><span style={{ color: '#e0e0e0' }}>{D.COINS.length}</span> <span className="dim">coins ·</span> {timeStr} <span className="dim">UTC</span>{nextLabel && <span className="auto-refresh-badge" style={{ opacity: refreshing ? 1 : 0.6 }}>{nextLabel}</span>}</>, tone: '#bbb', tip: <span><b>{D.COINS.length} coins</b> scanned at {timeStr} UTC. Auto-refreshes every 10 minutes. Universe: top-200 USDT-quoted Binance perpetual pairs by 30-day volume.</span> },
     { k: 'Top bull',       v: `${D.topBull.sym} · ${D.topBull.score1d}/18`, tone: '#00ff88', tip: <span>Highest 1-day <b>Ichimoku bull score</b>. Click to open detail.</span>, onClick: () => window.__openToken && window.__openToken(D.topBull.sym) },
-    { k: 'Squeeze setups', v: <>{D.squeezeSetups.length} <span className="qs-arrow mono">→</span></>, tone: '#7c3aed', tip: <span>Coins with all three: <b>BB-squeeze active</b>, <b>negative perp funding</b>, <b>bull score ≥ 11/18</b>. <b>Click to see the list.</b></span>, onClick: () => window.__activate && window.__activate('funding', { topN: 100, squeezeOnly: true }) },
+    { k: 'Squeeze setups', v: <>{D.squeezeSetups.length} <span className="qs-arrow mono">→</span></>, tone: '#7c3aed', tip: <span>Coins with all three: <b>BB-squeeze active</b>, <b>negative perp funding</b>, <b>bull score ≥ 11/18</b>.{D.squeezeSetups.length > 0 ? <><br/><b>Now:</b> {D.squeezeSetups.sort((a,b)=>a.funding-b.funding).map(c=>`${c.sym} (${(c.funding*100).toFixed(3)}%)`).join(' · ')}</> : ' None right now.'}<br/><b>Click to see the list.</b></span>, onClick: () => window.__activate && window.__activate('funding', { topN: 100, squeezeOnly: true }) },
   ];
 
   return (
@@ -59,6 +76,9 @@ function TopBar({ refreshing, dashView, setDashView, notifCount, onBellClick }) 
         <button className={'dash-toggle-btn' + (dashView === 'B' ? ' active' : '')} onClick={() => setDashView('B')}>
           B · Events
         </button>
+        <button className={'dash-toggle-btn' + (dashView === 'C' ? ' active' : '')} onClick={() => setDashView('C')}>
+          C · Signals
+        </button>
         {dashView === 'B' && (
           <span className="dash-b-warning" title="Dashboard B signals are exploratory — not walk-forward validated">
             ⚠ unvalidated
@@ -80,6 +100,36 @@ function TopBar({ refreshing, dashView, setDashView, notifCount, onBellClick }) 
       </div>
     </header>
   );
+}
+
+// ─── Scanner result count helper ─────────────────────────────────────────────
+function countFor(id, opts) {
+  const D = window.ICHI_DATA;
+  if (!D) return null;
+  switch (id) {
+    case 'daily': {
+      let r = D.COINS.filter(c => c.score1d >= (opts.minScore ?? 13));
+      if (opts.regime === 'TRENDING') r = r.filter(c => c.adx >= 25);
+      if (opts.regime === 'STRONG')   r = r.filter(c => c.adx >= 40);
+      return r.length;
+    }
+    case 'mtf': {
+      const min = opts.minAligned ?? 0;
+      if (min === 0) return D.COINS.length;
+      return D.COINS.filter(c => [c.score4h, c.score1d, c.score1w].filter(s => s >= 11).length >= min).length;
+    }
+    case 'coil':    return D.coiled.length;
+    case 'sector':  return D.sectorStats.length;
+    case 'funding': {
+      let r = D.COINS.filter(c => c.oi >= 20e6);
+      if (opts.squeezeOnly) r = r.filter(c => c.squeeze && c.funding < 0 && c.score1d >= 11);
+      if ((opts.minScore ?? 0) > 0) r = r.filter(c => c.score1d >= opts.minScore);
+      return Math.min(r.length, opts.topN ?? 30);
+    }
+    case 'alerts':
+      return D.alerts.newAbove.filter(a => a.now >= (opts.minScore ?? 13)).length + D.alerts.dropped.length;
+    default: return null;
+  }
 }
 
 // ─── Scanner control grid ────────────────────────────────────────────────────
@@ -128,7 +178,7 @@ const SCANNERS = [
   },
 ];
 
-function ScannerCard({ s, opts, setOpts, isActive, isRunning, onRun, onActivate, lastRun }) {
+function ScannerCard({ s, opts, setOpts, isActive, isRunning, onRun, onActivate, lastRun, resultCount }) {
   return (
     <div
       className={'scanner-card' + (isActive ? ' active' : '')}
@@ -154,6 +204,11 @@ function ScannerCard({ s, opts, setOpts, isActive, isRunning, onRun, onActivate,
       <div className="sc-foot">
         <div className="sc-last mono dim">
           {lastRun ? `last: ${lastRun}` : 'never run'}
+          {resultCount != null && (
+            <span style={{ marginLeft: 8, color: resultCount > 0 ? s.accent : '#555', fontWeight: 600 }}>
+              {resultCount} {resultCount === 1 ? 'result' : 'results'}
+            </span>
+          )}
         </div>
         <button
           className={'run-btn' + (isRunning ? ' running' : '')}
@@ -161,7 +216,7 @@ function ScannerCard({ s, opts, setOpts, isActive, isRunning, onRun, onActivate,
           disabled={isRunning}
           style={{ '--accent': s.accent }}
         >
-          {isRunning ? <><span className="spinner"></span> Running…</> : <>▶ Run</>}
+          {isRunning ? <><span className="spinner"></span> Running…</> : <>Open</>}
         </button>
       </div>
     </div>
@@ -289,17 +344,27 @@ function OptChip({ label, value, options, onChange, displayOf, descOf }) {
   );
 }
 
-// ─── Dashboard B TF selector ─────────────────────────────────────────────────
-function DashBTFSelector({ value, onChange }) {
+// ─── Dashboard B TF selector + score floor ───────────────────────────────────
+function DashBTFSelector({ value, onChange, minScore, onMinScore }) {
   const tfs = ['4h', '1d', '1w', 'ALL'];
+  const scores = [0, 8, 11, 13];
   return (
     <div className="dashb-tf-selector">
-      <span className="mono dim" style={{ fontSize: 11 }}>Timeframe:</span>
+      <span className="mono dim" style={{ fontSize: 11 }}>TF:</span>
       {tfs.map(tf => (
         <button key={tf}
           className={'dashb-tf-btn mono' + (value === tf ? ' active' : '')}
           onClick={() => onChange(tf)}>
           {tf}
+        </button>
+      ))}
+      <span className="mono dim" style={{ fontSize: 11, marginLeft: 12 }}>Min score:</span>
+      {scores.map(s => (
+        <button key={s}
+          className={'dashb-tf-btn mono' + (minScore === s ? ' active' : '')}
+          onClick={() => onMinScore(s)}
+          style={{ '--accent': s >= 13 ? '#00ff88' : s >= 11 ? '#ffaa00' : undefined }}>
+          {s === 0 ? 'Any' : `≥${s}`}
         </button>
       ))}
     </div>
@@ -359,7 +424,7 @@ function BottomStats() {
       sym: leadSector.sector,
       sector: `${leadSector.members} coins`,
       v: `${leadSector.avgBull.toFixed(1)}/18`,
-      sub: `${leadSector.pctAbove11}% ≥11 · ADX ${leadSector.avgAdx.toFixed(1)}`,
+      sub: `${leadSector.pctAbove13 ?? leadSector.pctAbove11}% ≥13 · ADX ${leadSector.avgAdx.toFixed(1)}`,
       tone: '#4fc3f7',
       tip: <span>Sector with the <b>highest average 1-day bull score</b>. <b>Click to open Sector Rotation.</b></span>,
       onClick: () => window.__activate && window.__activate('sector'),
@@ -419,6 +484,10 @@ function App() {
     () => localStorage.getItem('ichi_dash_b_tf') || '1d'
   );
   const setBTF = (v) => { _setBTF(v); localStorage.setItem('ichi_dash_b_tf', v); };
+  const [bMinScore, _setBMinScore] = useStateA(
+    () => Number(localStorage.getItem('ichi_dash_b_minscore') || '0')
+  );
+  const setBMinScore = (v) => { _setBMinScore(v); localStorage.setItem('ichi_dash_b_minscore', String(v)); };
 
   // Start Dashboard B alert polling once app mounts
   useEffectA(() => {
@@ -455,10 +524,13 @@ function App() {
       const merged = { ...s.defaults, ...scannerOpts[id], ...(opts || {}) };
       setScannerOpts(prev => ({ ...prev, [id]: merged }));
       setActive({ kind: id, opts: merged });
-      document.querySelector('.results-area')?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
+      setDashView('A'); // always switch to Scanner tab so results are visible
+      setTimeout(() => {
+        document.querySelector('.results-area')?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
+      }, 50);
     };
     return () => { delete window.__activate; };
-  }, [scannerOpts]);
+  }, [scannerOpts, setDashView]);
 
   function runScanner(s) {
     if (running) return;
@@ -494,6 +566,7 @@ function App() {
       {dashView === 'A' && (
         <>
           <ScoreLegend />
+          {typeof BtcRegimeBanner !== 'undefined' && <BtcRegimeBannerA />}
           <WatchlistStrip onOpen={(s) => window.__openToken(s)} />
           <section className={'scanner-grid' + (active ? ' has-active' : '')}>
             {SCANNERS.map(s => (
@@ -506,6 +579,7 @@ function App() {
                 onRun={() => runScanner(s)}
                 onActivate={() => setActive({ kind: s.id, opts: { ...scannerOpts[s.id] } })}
                 lastRun={lastRun[s.id]}
+                resultCount={countFor(s.id, scannerOpts[s.id])}
               />
             ))}
           </section>
@@ -519,11 +593,20 @@ function App() {
       {dashView === 'B' && (
         <main className="dash-b-area">
           <div className="dash-b-toolbar">
-            <DashBTFSelector value={bTF} onChange={setBTF} />
+            <DashBTFSelector value={bTF} onChange={setBTF} minScore={bMinScore} onMinScore={setBMinScore} />
           </div>
           {typeof DashboardB !== 'undefined'
-            ? <DashboardB tf={bTF} />
+            ? <DashboardB tf={bTF} minScore={bMinScore} />
             : <div className="dash-b-placeholder mono dim">Dashboard B panels loading…</div>
+          }
+        </main>
+      )}
+
+      {dashView === 'C' && (
+        <main className="dash-b-area" style={{ padding: '16px 20px' }}>
+          {typeof SignalLogPanel !== 'undefined'
+            ? <SignalLogPanel />
+            : <div className="mono dim" style={{ padding: 40, textAlign: 'center' }}>Signals panel loading…</div>
           }
         </main>
       )}
@@ -563,9 +646,10 @@ function WatchlistStrip({ onOpen }) {
 
 // ─── App loader — handles API polling before rendering the full UI ────────────
 function AppLoader() {
-  const [phase, setPhase] = useStateA('loading'); // loading | ready | error
+  const [phase, setPhase] = useStateA('loading'); // loading | ready | stale | error
   const [msg, setMsg]     = useStateA('Connecting to scan server…');
   const [errText, setErr] = useStateA('');
+  const [staleTs, setStaleTs] = useStateA('');
 
   useEffectA(() => {
     let alive = true;
@@ -574,12 +658,28 @@ function AppLoader() {
     window.loadData()
       .then(() => {
         if (!alive) return;
-        setPhase('ready');
+        if (window.ICHI_DATA?._stale) {
+          const ts = window.ICHI_DATA._scannedAt
+            ? new Date(window.ICHI_DATA._scannedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+            : 'previous scan';
+          setStaleTs(ts);
+          setPhase('stale');
+        } else {
+          setPhase('ready');
+        }
       })
       .catch(err => {
         if (!alive) return;
-        setPhase('error');
-        setErr(err.message || String(err));
+        if (window.ICHI_DATA?.COINS?.length > 0) {
+          const ts = window.ICHI_DATA._scannedAt
+            ? new Date(window.ICHI_DATA._scannedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+            : 'unknown time';
+          setStaleTs(ts);
+          setPhase('stale');
+        } else {
+          setPhase('error');
+          setErr(err.message || String(err));
+        }
       });
 
     // Poll for status messages
@@ -594,10 +694,28 @@ function AppLoader() {
         .catch(() => setMsg('Waiting for API server on :8000…'));
     }, 4000);
 
-    return () => { alive = false; clearInterval(id); };
+    // When background poll delivers fresh data, upgrade from stale → ready
+    const onUpdate = () => {
+      if (!alive) return;
+      setPhase('ready');
+      setStaleTs('');
+    };
+    window.addEventListener('ichi:data-updated', onUpdate);
+
+    return () => { alive = false; clearInterval(id); window.removeEventListener('ichi:data-updated', onUpdate); };
   }, []);
 
   if (phase === 'ready') return <App />;
+
+  if (phase === 'stale') return (
+    <>
+      <div style={{ background: '#ffaa0022', borderBottom: '1px solid #ffaa0055', padding: '7px 18px', fontSize: 11, fontFamily: 'JetBrains Mono,monospace', color: '#ffaa00', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span>⚠ API offline — showing snapshot from {staleTs}. Data may be stale.</span>
+        <button className="run-btn" style={{ '--accent': '#ffaa00', padding: '2px 10px', fontSize: 10 }} onClick={() => { setPhase('loading'); setErr(''); setMsg('Reconnecting…'); window.loadData().then(() => setPhase('ready')).catch(() => {}); }}>↺ Retry</button>
+      </div>
+      <App />
+    </>
+  );
 
   if (phase === 'error') return (
     <div style={{ display: 'grid', placeItems: 'center', minHeight: '100vh', gap: 14 }}>

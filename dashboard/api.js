@@ -163,9 +163,10 @@ function buildIchiData(coins) {
   const sectorStats = Object.entries(sectorMap).map(([sector, members]) => {
     const avgBull = members.reduce((s, c) => s + c.score1d, 0) / members.length;
     const pctAbove11 = members.filter(c => c.score1d >= 11).length / members.length;
+    const pctAbove13 = members.filter(c => c.score1d >= 13).length / members.length;
     const avgAdx = members.reduce((s, c) => s + c.adx, 0) / members.length;
     const top = [...members].sort((a, b) => b.score1d - a.score1d).slice(0, 4);
-    return { sector, members: members.length, avgBull: Math.round(avgBull * 10) / 10, pctAbove11: Math.round(pctAbove11 * 100), avgAdx: Math.round(avgAdx * 10) / 10, top };
+    return { sector, members: members.length, avgBull: Math.round(avgBull * 10) / 10, pctAbove11: Math.round(pctAbove11 * 100), pctAbove13: Math.round(pctAbove13 * 100), avgAdx: Math.round(avgAdx * 10) / 10, top };
   }).sort((a, b) => b.avgBull - a.avgBull);
 
   // Alerts: compare current score vs oldest history entry (7 days ago)
@@ -205,18 +206,36 @@ window.loadData = function () {
     let consecutiveFails = 0;
     const MAX_FAILS = 5; // give up only after 5 consecutive network failures
 
+    let resolved = false;
+
+    function loadCoins(resp, stale) {
+      const adapted = resp.coins.map(adaptCoin);
+      window.ICHI_DATA = buildIchiData(adapted);
+      window.ICHI_DATA._scannedAt = resp.scanned_at;
+      window.ICHI_DATA._stale = stale;
+      if (!resolved) {
+        resolved = true;
+        resolve(window.ICHI_DATA);
+      } else {
+        // Fresh data arrived after stale — dispatch an update event
+        window.dispatchEvent(new CustomEvent('ichi:data-updated', { detail: window.ICHI_DATA }));
+      }
+    }
+
     function poll() {
       fetch(API_BASE + '/api/data')
         .then(r => r.json())
         .then(resp => {
           consecutiveFails = 0;
           if (resp.status === 'ready' && resp.coins && resp.coins.length > 0) {
-            const adapted = resp.coins.map(adaptCoin);
-            window.ICHI_DATA = buildIchiData(adapted);
-            window.ICHI_DATA._scannedAt = resp.scanned_at;
-            resolve(window.ICHI_DATA);
+            loadCoins(resp, false);
           } else if (resp.status === 'error') {
-            reject(new Error('Scan error: ' + (resp.error || 'unknown')));
+            if (!resolved) reject(new Error('Scan error: ' + (resp.error || 'unknown')));
+          } else if ((resp.status === 'scanning' || resp.status === 'idle') && resp.coins && resp.coins.length > 0) {
+            // Stale data available — resolve now so the dashboard shows immediately
+            loadCoins(resp, true);
+            // Keep polling until fresh data arrives
+            setTimeout(poll, POLL_MS);
           } else {
             setTimeout(poll, POLL_MS);
           }
@@ -224,7 +243,7 @@ window.loadData = function () {
         .catch(err => {
           consecutiveFails++;
           if (consecutiveFails >= MAX_FAILS) {
-            reject(new Error('API unreachable after ' + MAX_FAILS + ' attempts: ' + err.message));
+            if (!resolved) reject(new Error('API unreachable after ' + MAX_FAILS + ' attempts: ' + err.message));
           } else {
             setTimeout(poll, POLL_MS);
           }

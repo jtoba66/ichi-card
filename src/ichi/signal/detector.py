@@ -7,13 +7,17 @@ dict if the conditions are met at the latest bar, or None.
 from __future__ import annotations
 
 import json
-import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 import pandas as pd
+import psycopg2
+import psycopg2.extras
 
+from ichi.signal.db import get_conn
+
+# Kept only for the data-migration script — not used for connections.
 DB_PATH = Path(__file__).parents[3] / "data" / "signals.db"
 
 HOSODA_NUMBERS = {9, 17, 26, 33, 42, 51, 65, 76, 83, 97, 101, 129, 172}
@@ -41,6 +45,7 @@ CREATE TABLE IF NOT EXISTS signal_log (
     fired_at         TEXT NOT NULL,
     entry_price      REAL NOT NULL,
     bull_score       INTEGER,
+    quality_score    REAL,
     cloud_state      TEXT,
     signal_metadata  TEXT,
     hosoda_active    INTEGER DEFAULT 0,
@@ -59,19 +64,19 @@ CREATE TABLE IF NOT EXISTS signal_log (
     is_backfill      INTEGER DEFAULT 0,
     logged_at        TEXT NOT NULL,
     updated_at       TEXT NOT NULL
-);
+)
 """
 
-_CREATE_SIGNAL_LOG_INDEXES = """
-CREATE INDEX IF NOT EXISTS idx_signal_type ON signal_log(signal_type);
-CREATE INDEX IF NOT EXISTS idx_symbol      ON signal_log(symbol, timeframe);
-CREATE INDEX IF NOT EXISTS idx_status      ON signal_log(status);
-CREATE INDEX IF NOT EXISTS idx_fired_at    ON signal_log(fired_at);
-"""
+_CREATE_SIGNAL_LOG_INDEXES = [
+    "CREATE INDEX IF NOT EXISTS idx_signal_type ON signal_log(signal_type)",
+    "CREATE INDEX IF NOT EXISTS idx_symbol      ON signal_log(symbol, timeframe)",
+    "CREATE INDEX IF NOT EXISTS idx_status      ON signal_log(status)",
+    "CREATE INDEX IF NOT EXISTS idx_fired_at    ON signal_log(fired_at)",
+]
 
 _CREATE_CHIKOU_LEVELS = """
 CREATE TABLE IF NOT EXISTS chikou_levels (
-    level_id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    level_id           SERIAL PRIMARY KEY,
     symbol             TEXT NOT NULL,
     timeframe          TEXT NOT NULL,
     level_price        REAL NOT NULL,
@@ -82,43 +87,48 @@ CREATE TABLE IF NOT EXISTS chikou_levels (
     significance_score INTEGER,
     level_type         TEXT,
     last_updated       TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_chikou_symbol ON chikou_levels(symbol, timeframe);
+)
 """
+
+_CREATE_CHIKOU_LEVELS_INDEX = (
+    "CREATE INDEX IF NOT EXISTS idx_chikou_symbol ON chikou_levels(symbol, timeframe)"
+)
 
 _CREATE_COOCCURRENCE_LOG = """
 CREATE TABLE IF NOT EXISTS cooccurrence_log (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    id          SERIAL PRIMARY KEY,
     signal_id_a TEXT REFERENCES signal_log(signal_id),
     signal_id_b TEXT REFERENCES signal_log(signal_id),
     symbol      TEXT,
     timeframe   TEXT,
     bars_apart  INTEGER,
-    logged_at   TEXT
-);
+    logged_at   TEXT,
+    UNIQUE (signal_id_a, signal_id_b)
+)
 """
 
 
 def init_db() -> None:
     """Create all tables and indexes. Safe to call repeatedly (IF NOT EXISTS)."""
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, timeout=30)
+    conn = get_conn()
     try:
-        conn.execute("PRAGMA journal_mode=WAL")   # allow concurrent reads during writes
-        conn.executescript(_CREATE_SIGNAL_LOG)
-        conn.executescript(_CREATE_SIGNAL_LOG_INDEXES)
-        conn.executescript(_CREATE_CHIKOU_LEVELS)
-        conn.executescript(_CREATE_COOCCURRENCE_LOG)
-        # Safe migrations for columns added after initial release
-        for col, typedef in [
-            ("mae",           "REAL"),
-            ("mfe",           "REAL"),
-            ("duration_bars", "INTEGER"),
-        ]:
-            try:
-                conn.execute(f"ALTER TABLE signal_log ADD COLUMN {col} {typedef}")
-            except sqlite3.OperationalError:
-                pass  # column already exists
+        with conn.cursor() as cur:
+            cur.execute(_CREATE_SIGNAL_LOG)
+            for idx_sql in _CREATE_SIGNAL_LOG_INDEXES:
+                cur.execute(idx_sql)
+            cur.execute(_CREATE_CHIKOU_LEVELS)
+            cur.execute(_CREATE_CHIKOU_LEVELS_INDEX)
+            cur.execute(_CREATE_COOCCURRENCE_LOG)
+            # Safe migrations for columns added after initial release
+            for col, typedef in [
+                ("mae",           "REAL"),
+                ("mfe",           "REAL"),
+                ("duration_bars", "INTEGER"),
+                ("quality_score", "REAL"),
+            ]:
+                cur.execute(
+                    f"ALTER TABLE signal_log ADD COLUMN IF NOT EXISTS {col} {typedef}"
+                )
         conn.commit()
     finally:
         conn.close()
@@ -179,42 +189,50 @@ def _safe(val) -> Optional[float]:
 
 def log_signal(signal_dict: dict) -> bool:
     """Insert signal into DB. Returns True if newly inserted, False if duplicate."""
-    conn = sqlite3.connect(DB_PATH, timeout=30)
+    conn = get_conn()
     try:
         now = datetime.now(timezone.utc).isoformat()
-        cur = conn.execute(
-            """
-            INSERT OR IGNORE INTO signal_log
-            (signal_id, signal_type, signal_subtype, symbol, timeframe,
-             fired_at, entry_price, bull_score, cloud_state, signal_metadata,
-             hosoda_active, hosoda_number, hosoda_pivot_type,
-             is_backfill, logged_at, updated_at, status)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                signal_dict["signal_id"],
-                signal_dict["signal_type"],
-                signal_dict.get("signal_subtype"),
-                signal_dict["symbol"],
-                signal_dict["timeframe"],
-                signal_dict["fired_at"],
-                signal_dict["entry_price"],
-                signal_dict.get("bull_score"),
-                signal_dict.get("cloud_state"),
-                json.dumps(signal_dict.get("signal_metadata", {})),
-                int(signal_dict.get("hosoda_active", False)),
-                signal_dict.get("hosoda_number"),
-                signal_dict.get("hosoda_pivot_type"),
-                int(signal_dict.get("is_backfill", False)),
-                now, now,
-                "OPEN",
-            ),
-        )
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO signal_log
+                (signal_id, signal_type, signal_subtype, symbol, timeframe,
+                 fired_at, entry_price, bull_score, quality_score, cloud_state, signal_metadata,
+                 hosoda_active, hosoda_number, hosoda_pivot_type,
+                 is_backfill, logged_at, updated_at, status,
+                 tier, btc_regime, chikou_ok, cloud_thickness_pct)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (signal_id) DO NOTHING
+                """,
+                (
+                    signal_dict["signal_id"],
+                    signal_dict["signal_type"],
+                    signal_dict.get("signal_subtype"),
+                    signal_dict["symbol"],
+                    signal_dict["timeframe"],
+                    signal_dict["fired_at"],
+                    signal_dict["entry_price"],
+                    signal_dict.get("bull_score"),
+                    signal_dict.get("quality_score"),
+                    signal_dict.get("cloud_state"),
+                    json.dumps(signal_dict.get("signal_metadata", {})),
+                    int(signal_dict.get("hosoda_active", False)),
+                    signal_dict.get("hosoda_number"),
+                    signal_dict.get("hosoda_pivot_type"),
+                    int(signal_dict.get("is_backfill", False)),
+                    now, now,
+                    "OPEN",
+                    signal_dict.get("tier"),
+                    signal_dict.get("btc_regime"),
+                    int(signal_dict.get("chikou_ok", 0)),
+                    signal_dict.get("cloud_thickness_pct"),
+                ),
+            )
+            inserted = cur.rowcount > 0
         conn.commit()
-        return cur.rowcount > 0
+        return inserted
     finally:
         conn.close()
-    return False
 
 
 def check_cooccurrence(
@@ -226,16 +244,18 @@ def check_cooccurrence(
     mins = tf_minutes.get(timeframe, 1440)
     window_secs = window_bars * mins * 60
 
-    conn = sqlite3.connect(DB_PATH, timeout=30)
+    conn = get_conn()
     try:
-        rows = conn.execute(
-            """
-            SELECT signal_id, fired_at FROM signal_log
-            WHERE symbol = ? AND timeframe = ? AND signal_id != ?
-            ORDER BY fired_at DESC LIMIT 50
-            """,
-            (symbol, timeframe, signal_id),
-        ).fetchall()
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT signal_id, fired_at FROM signal_log
+                WHERE symbol = %s AND timeframe = %s AND signal_id != %s
+                ORDER BY fired_at DESC LIMIT 50
+                """,
+                (symbol, timeframe, signal_id),
+            )
+            rows = cur.fetchall()
 
         try:
             t_self = datetime.fromisoformat(fired_at).timestamp()
@@ -243,22 +263,24 @@ def check_cooccurrence(
             return
 
         now = datetime.now(timezone.utc).isoformat()
-        for other_id, other_fired in rows:
-            try:
-                t_other = datetime.fromisoformat(other_fired).timestamp()
-            except Exception:
-                continue
-            diff_secs = abs(t_self - t_other)
-            if diff_secs <= window_secs:
-                bars_apart = max(1, round(diff_secs / (mins * 60)))
-                conn.execute(
-                    """
-                    INSERT OR IGNORE INTO cooccurrence_log
-                    (signal_id_a, signal_id_b, symbol, timeframe, bars_apart, logged_at)
-                    VALUES (?,?,?,?,?,?)
-                    """,
-                    (signal_id, other_id, symbol, timeframe, bars_apart, now),
-                )
+        with conn.cursor() as cur:
+            for other_id, other_fired in rows:
+                try:
+                    t_other = datetime.fromisoformat(other_fired).timestamp()
+                except Exception:
+                    continue
+                diff_secs = abs(t_self - t_other)
+                if diff_secs <= window_secs:
+                    bars_apart = max(1, round(diff_secs / (mins * 60)))
+                    cur.execute(
+                        """
+                        INSERT INTO cooccurrence_log
+                        (signal_id_a, signal_id_b, symbol, timeframe, bars_apart, logged_at)
+                        VALUES (%s,%s,%s,%s,%s,%s)
+                        ON CONFLICT (signal_id_a, signal_id_b) DO NOTHING
+                        """,
+                        (signal_id, other_id, symbol, timeframe, bars_apart, now),
+                    )
         conn.commit()
     finally:
         conn.close()
@@ -640,19 +662,21 @@ def detect_signal_9(df: pd.DataFrame, symbol: str, tf: str, bull_score: int,
         if bull_score < 11:
             return None
 
-        conn = sqlite3.connect(DB_PATH, timeout=30)
-        levels = conn.execute(
-            """
-            SELECT level_price, significance_score, touch_count, duration_bars
-            FROM chikou_levels
-            WHERE symbol = ? AND timeframe = ?
-              AND (significance_score >= 20 OR touch_count >= 3)
-              AND level_price < ?
-            ORDER BY ABS(level_price - ?) ASC
-            LIMIT 5
-            """,
-            (symbol, tf, close, close),
-        ).fetchall()
+        conn = get_conn()
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT level_price, significance_score, touch_count, duration_bars
+                FROM chikou_levels
+                WHERE symbol = %s AND timeframe = %s
+                  AND (significance_score >= 20 OR touch_count >= 3)
+                  AND level_price < %s
+                ORDER BY ABS(level_price - %s) ASC
+                LIMIT 5
+                """,
+                (symbol, tf, close, close),
+            )
+            levels = cur.fetchall()
         conn.close()
 
         if not levels:
@@ -698,9 +722,63 @@ def detect_signal_9(df: pd.DataFrame, symbol: str, tf: str, bull_score: int,
     return None
 
 
+def detect_signal_10(df: pd.DataFrame, symbol: str, tf: str, bull_score: int,
+                     is_backfill: bool = False, _bar_i: int = -1) -> Optional[dict]:
+    """Signal 10 — RSI Bounce. Oversold dip inside an uptrend, on the turn-up.
+
+    Faster entry-timing layer on top of the Ichimoku regime: only fires when the
+    coin is above the cloud (uptrend permission), RSI(14) dipped to <=38 within
+    the last 3 bars, and RSI is now rising (the bounce onset).
+    """
+    i = len(df) - 1 if _bar_i < 0 else _bar_i
+    if i < 26:
+        return None
+    try:
+        close = float(df["close"].iat[i])
+        if close <= max(float(df["span_a"].iat[i]), float(df["span_b"].iat[i])):
+            return None  # must be above the cloud (uptrend regime)
+
+        rsi_now  = _safe(df["_rsi"].iat[i])
+        rsi_prev = _safe(df["_rsi"].iat[i - 1])
+        if rsi_now is None or rsi_prev is None:
+            return None
+
+        rsi_min_3 = min(
+            v for v in (_safe(df["_rsi"].iat[i - k]) for k in range(3)) if v is not None
+        )
+        if not (rsi_min_3 <= 38.0 and rsi_now > rsi_prev):
+            return None  # was oversold in last 3 bars AND turning up now
+
+        hosoda = get_hosoda_state(df, i)
+        return {
+            "signal_type": 10,
+            "symbol": symbol, "timeframe": tf,
+            "fired_at": str(df.index[i]),
+            "entry_price": close,
+            "bull_score": bull_score,
+            "cloud_state": "ABOVE",
+            "signal_metadata": {
+                "rsi": round(rsi_now, 1),
+                "rsi_min_3bar": round(rsi_min_3, 1),
+                "vol_ratio": _safe(df["_vol_ratio"].iat[i]),
+                "bull_score": bull_score,
+            },
+            **hosoda, "is_backfill": is_backfill,
+        }
+    except Exception:
+        return None
+
+
 # ── Onset-detection helpers ───────────────────────────────────────────────────
 
 _TF_SECS = {"1d": 86400, "4h": 14400, "1w": 604800}
+
+# Signal types that re-fire on a pure TIME cooldown (bars) instead of the default
+# open-position + 5% price-displacement gate. Mean-reversion signals (e.g. RSI
+# Bounce) must re-fire on each oversold bounce; the displacement gate strangles
+# them in chop (low displacement = blocked indefinitely). See research/ sweep:
+# the chop edge survives spacing fires ~15 bars apart.
+_ONSET_TIME_COOLDOWN: dict[int, int] = {10: 15}
 
 
 def _db_onset_blocked(
@@ -717,19 +795,27 @@ def _db_onset_blocked(
         with a hard minimum 3-bar cooldown to prevent same-bar duplicates
     """
     try:
-        conn = sqlite3.connect(DB_PATH, timeout=30)
-        row = conn.execute(
-            """SELECT status, fired_at, exit_bar, exit_timestamp, entry_price
-               FROM signal_log
-               WHERE signal_type = ? AND symbol = ? AND timeframe = ?
-               ORDER BY fired_at DESC LIMIT 1""",
-            (signal_type, symbol, tf),
-        ).fetchone()
+        conn = get_conn()
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT status, fired_at, exit_bar, exit_timestamp, entry_price
+                   FROM signal_log
+                   WHERE signal_type = %s AND symbol = %s AND timeframe = %s
+                     AND is_backfill = 0
+                   ORDER BY fired_at DESC LIMIT 1""",
+                (signal_type, symbol, tf),
+            )
+            row = cur.fetchone()
         conn.close()
         if row is None:
             return False
         status, fired_at_str, exit_bar, exit_ts_str, entry_price = row
         fired_ts = datetime.fromisoformat(fired_at_str).timestamp()
+
+        # Time-cooldown signal types (mean-reversion) bypass the open/displacement
+        # gate: block only if the last fire was within the cooldown window.
+        if signal_type in _ONSET_TIME_COOLDOWN:
+            return (current_ts - fired_ts) / tf_secs < _ONSET_TIME_COOLDOWN[signal_type]
 
         if status == "OPEN":
             return (current_ts - fired_ts) / tf_secs < 60
@@ -782,7 +868,7 @@ def detect_all_signals(
         detect_signal_1, detect_signal_2, detect_signal_3,
         detect_signal_4, detect_signal_5, detect_signal_6,
         detect_signal_7a, detect_signal_7b, detect_signal_7c, detect_signal_7d,
-        detect_signal_9,
+        detect_signal_9, detect_signal_10,
     ]
     results = []
     i = len(df) - 1 if _bar_i < 0 else _bar_i
@@ -791,12 +877,18 @@ def detect_all_signals(
 
     tf_secs = _TF_SECS.get(tf, 86400)
     current_ts = float(pd.Timestamp(df.index[i]).timestamp())
+    fired_types: set[int] = set()  # dedup: only one signal per type per bar
 
     for fn in detectors:
         try:
             result = fn(df, symbol, tf, bull_score, is_backfill, _bar_i=i)
             if result:
                 sig_type = result["signal_type"]
+
+                # ── Same-bar dedup: one signal per type per bar ───────────
+                if sig_type in fired_types:
+                    continue
+                fired_types.add(sig_type)
 
                 # ── Onset-detection gate ──────────────────────────────────
                 if _blocked_types is not None:

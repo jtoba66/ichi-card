@@ -61,10 +61,29 @@ function TipLayer() {
 // ─── Score bar + number ──────────────────────────────────────────────────────
 function scoreColor(score) {
   if (score >= 14) return '#39ff14';
-  if (score >= 11) return '#00ff88';
+  if (score >= 13) return '#00ff88';
   if (score >= 7)  return '#ffaa00';
   if (score >= 4)  return '#ff8855';
   return '#ff3860';
+}
+
+// Quality score (0–100 IC-weighted): green ≥60, amber ≥30, red <30, grey=0
+function qualityColor(qs) {
+  if (!qs || qs === 0) return '#555';
+  if (qs >= 80) return '#39ff14';   // Elite — bright green
+  if (qs >= 60) return '#00ff88';   // Strong — green
+  if (qs >= 40) return '#ffaa00';   // Solid — amber
+  if (qs >= 20) return '#ff8855';   // Weak — orange
+  return '#ff3860';                  // Low — red
+}
+
+function qualityLabel(qs) {
+  if (!qs || qs === 0) return '—';
+  if (qs >= 80) return '★★★ Elite';
+  if (qs >= 60) return '★★ Strong';
+  if (qs >= 40) return '★ Solid';
+  if (qs >= 20) return 'Weak';
+  return 'Low';
 }
 
 function ScoreBar({ score, max = 18, width = 84 }) {
@@ -339,11 +358,11 @@ function WatchStar({ sym, compact = false }) {
 // ─── Score legend strip ──────────────────────────────────────────────────────
 function ScoreLegend() {
   const buckets = [
-    { range: '0–3',   label: 'Bearish', color: '#ff3860', tip: 'Most rules failing — the Ichimoku structure is actively bearish. Do not look for longs here. Only relevant if you are looking for short setups.' },
-    { range: '4–6',   label: 'Weak',    color: '#ff8855', tip: 'Majority of rules still failing, but some bearish pressure is easing. Could be starting to bottom or could keep falling — no clear direction yet. Watch, do not act.' },
-    { range: '7–10',  label: 'Setup',   color: '#ffaa00', tip: 'Roughly half the rules are passing. Structure is neutral — possibly building toward a move. Worth adding to your watchlist, but not a confirmed buy signal yet.' },
-    { range: '11–13', label: 'Strong',  color: '#00ff88', tip: 'Bullish structure confirmed across the majority of checks. This is the standard entry zone — enough evidence of trend strength to consider a position.' },
-    { range: '14–18', label: 'Extreme', color: '#39ff14', tip: 'Near-perfect Ichimoku alignment. Very high confidence, but these coins have usually already moved — size carefully and be aware you may be entering late.' },
+    { range: '0–3',   label: 'Bearish',    color: '#ff3860', tip: 'Most rules failing — the Ichimoku structure is actively bearish. Do not look for longs here. Only relevant if you are looking for short setups.' },
+    { range: '4–6',   label: 'Weak',       color: '#ff8855', tip: 'Majority of rules still failing, but some bearish pressure is easing. Could be starting to bottom or could keep falling — no clear direction yet. Watch, do not act.' },
+    { range: '7–12',  label: 'Developing', color: '#ffaa00', tip: 'Structure is building but has not yet reached the walk-forward validated threshold. Worth adding to your watchlist — not a confirmed signal. 11–12 can look strong but has no OOS edge evidence yet.' },
+    { range: '13',    label: 'Validated ✓',color: '#00ff88', tip: '≥13 is the walk-forward validated signal threshold — 100% positive out-of-sample return across 7 rolling windows. This is where signals become statistically meaningful. 13/18 exactly is the entry.' },
+    { range: '14–18', label: 'Elite',      color: '#39ff14', tip: 'Near-perfect Ichimoku alignment — all major rules firing simultaneously. Very high conviction but these coins have usually already moved. Size carefully.' },
   ];
   return (
     <div className="score-legend">

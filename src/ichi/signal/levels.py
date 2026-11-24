@@ -2,7 +2,7 @@
 
 Derives significant support/resistance levels from historical chikou span
 peaks and troughs (which map to price swing highs/lows). Levels are stored
-in the chikou_levels SQLite table and used by detect_signal_9().
+in the chikou_levels PostgreSQL table and used by detect_signal_9().
 
 Key design: levels are built incrementally up to bar i during backfill so
 there is no lookahead bias. For live use, build_chikou_levels() can be
@@ -10,13 +10,12 @@ called on the full history and the table rebuilt periodically (weekly).
 """
 from __future__ import annotations
 
-import sqlite3
 from datetime import datetime, timezone
 from typing import Optional
 
 import pandas as pd
 
-from ichi.signal.detector import DB_PATH
+from ichi.signal.db import get_conn
 
 
 # ── Level derivation ──────────────────────────────────────────────────────────
@@ -110,30 +109,33 @@ def update_chikou_levels_to_bar(df: pd.DataFrame, i: int, symbol: str,
 def save_chikou_levels(levels: list[dict]) -> int:
     """Upsert a list of level dicts into the chikou_levels table.
 
-    Uses INSERT OR REPLACE keyed on (symbol, timeframe, level_price rounded
-    to 8 significant figures). Returns number of rows written.
+    Deletes all existing rows for (symbol, timeframe) then bulk-inserts.
+    Returns number of rows written.
     """
     if not levels:
         return 0
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_conn()
     try:
-        conn.execute("DELETE FROM chikou_levels WHERE symbol = ? AND timeframe = ?",
-                     (levels[0]["symbol"], levels[0]["timeframe"]))
-        conn.executemany(
-            """
-            INSERT INTO chikou_levels
-            (symbol, timeframe, level_price, first_bar, last_bar,
-             touch_count, duration_bars, significance_score, level_type, last_updated)
-            VALUES (?,?,?,?,?,?,?,?,?,?)
-            """,
-            [
-                (lv["symbol"], lv["timeframe"], lv["level_price"],
-                 lv["first_bar"], lv["last_bar"], lv["touch_count"],
-                 lv["duration_bars"], lv["significance_score"],
-                 lv["level_type"], lv["last_updated"])
-                for lv in levels
-            ],
-        )
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM chikou_levels WHERE symbol = %s AND timeframe = %s",
+                (levels[0]["symbol"], levels[0]["timeframe"]),
+            )
+            cur.executemany(
+                """
+                INSERT INTO chikou_levels
+                (symbol, timeframe, level_price, first_bar, last_bar,
+                 touch_count, duration_bars, significance_score, level_type, last_updated)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """,
+                [
+                    (lv["symbol"], lv["timeframe"], lv["level_price"],
+                     lv["first_bar"], lv["last_bar"], lv["touch_count"],
+                     lv["duration_bars"], lv["significance_score"],
+                     lv["level_type"], lv["last_updated"])
+                    for lv in levels
+                ],
+            )
         conn.commit()
         return len(levels)
     finally:

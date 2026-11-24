@@ -23,6 +23,7 @@ from ichi.data.universe import get_exchange_for, top_n_by_marketcap
 from ichi.indicators.ichimoku import ichimoku
 from ichi.indicators.precompute import precompute
 from ichi.rules.registry import RuleRegistry
+from ichi.scoring.quality import compute_quality_score
 from ichi.signal.detector import detect_all_signals, log_signal, check_cooccurrence, init_db
 from ichi.signal.levels import build_chikou_levels, save_chikou_levels
 
@@ -120,10 +121,11 @@ def _scan_events_for(sym: str, timeframe: str, registry: RuleRegistry) -> dict:
         if df.empty or len(df) < 52:
             return {}
         df = ichimoku(df)
-        precompute(df)
+        df = precompute(df)
         i = len(df) - 1
         sc = evaluate(df, i, registry)
         bull_score = sc.bull_score
+        fired_rules = {r.rule_id for r in sc.rules if r.qualifies_bull}
 
         results = {}
         ev = get_transition_events(df, sym, timeframe)
@@ -156,15 +158,149 @@ def _scan_events_for(sym: str, timeframe: str, registry: RuleRegistry) -> dict:
             levels = build_chikou_levels(df, sym_clean, timeframe)
             save_chikou_levels(levels)
             signals = detect_all_signals(df, sym_clean, timeframe, bull_score)
+            bar_i = len(df) - 1
+            # Fetch BTC/ETH regime once per scan (cached in filters module)
+            from ichi.signal.filters import classify_signal, get_btc_1d_regime, get_eth_1d_regime
+            btc_regime = get_btc_1d_regime()
+            eth_regime = get_eth_1d_regime()
+            for sig in signals:
+                qs = compute_quality_score(sig["signal_type"], timeframe, fired_rules)
+                sig["quality_score"] = qs
+                # Attach tier/filter metadata into signal_metadata so notifier and
+                # dashboard can use it without re-fetching OHLCV
+                try:
+                    filt = classify_signal(
+                        signal_type=sig["signal_type"],
+                        symbol=sym_clean,
+                        timeframe=timeframe,
+                        quality_score=qs,
+                        hosoda_active=bool(sig.get("hosoda_active")),
+                        df=df,
+                        bar_i=bar_i,
+                        btc_regime=btc_regime,
+                        eth_regime=eth_regime,
+                        bull_score=bull_score,
+                    )
+                    existing_meta = sig.get("signal_metadata") or {}
+                    if isinstance(existing_meta, str):
+                        import json as _json
+                        existing_meta = _json.loads(existing_meta or "{}")
+                    existing_meta["filter"] = filt
+                    sig["signal_metadata"] = existing_meta
+                    # Write filter fields to dedicated columns for direct SQL analysis
+                    sig["tier"]               = filt.get("tier")
+                    sig["btc_regime"]         = filt.get("btc_regime")
+                    sig["chikou_ok"]          = int(filt.get("chikou_ok", False))
+                    sig["cloud_thickness_pct"] = filt.get("cloud_thickness")
+                except Exception as _fe:
+                    logger.debug("filter classify failed %s %s: %s", sym, timeframe, _fe)
             if signals:
                 results["signals"] = signals
         except Exception as exc:
             logger.debug("signal detect %s %s failed: %s", sym, timeframe, exc)
 
+        # Developing pre-signal conditions
+        try:
+            dev = _check_developing(df, sym, timeframe)
+            if dev:
+                results["developing"] = dev
+        except Exception as exc:
+            logger.debug("developing check %s %s failed: %s", sym, timeframe, exc)
+
         return results
     except Exception as exc:
         logger.debug("event scan %s %s failed: %s", sym, timeframe, exc)
         return {}
+
+
+def _check_developing(df, sym: str, timeframe: str) -> dict | None:
+    """Check for pre-signal conditions that suggest a setup is forming."""
+    conditions: list[str] = []
+    details: dict = {}
+    try:
+        last = len(df) - 1
+        if last < 26:
+            return None
+
+        close = float(df["close"].iat[last])
+        tk    = float(df["tk"].iat[last])
+        kj    = float(df["kj"].iat[last])
+        sa    = float(df["span_a"].iat[last])
+        sb    = float(df["span_b"].iat[last])
+        cloud_top = max(sa, sb)
+        cloud_bot = min(sa, sb)
+
+        # 1. TK converging — tenkan and kijun closing in, within 0.5% of price
+        gap_pct = abs(tk - kj) / close * 100
+        if gap_pct < 0.5 and last > 0:
+            prev_tk = float(df["tk"].iat[last - 1])
+            prev_kj = float(df["kj"].iat[last - 1])
+            prev_gap = abs(prev_tk - prev_kj) / close * 100
+            if gap_pct < prev_gap:
+                conditions.append("tk_converging")
+                details["tk_gap_pct"] = round(gap_pct, 3)
+
+        # 2. Price just entered cloud (was outside last bar, inside now)
+        in_cloud = cloud_bot <= close <= cloud_top
+        if in_cloud and last > 0:
+            prev_close = float(df["close"].iat[last - 1])
+            prev_sa    = float(df["span_a"].iat[last - 1])
+            prev_sb    = float(df["span_b"].iat[last - 1])
+            prev_top   = max(prev_sa, prev_sb)
+            prev_bot   = min(prev_sa, prev_sb)
+            if not (prev_bot <= prev_close <= prev_top):
+                conditions.append("cloud_entry")
+                details["entered_from"] = "below" if prev_close < prev_bot else "above"
+
+        # 3. Future twist upcoming within 5 bars (span_a_lead / span_b_lead crossing)
+        sal = df["span_a_lead"].values
+        sbl = df["span_b_lead"].values
+        for j in range(last, min(last + 6, len(sal) - 1)):
+            if (sal[j] > sbl[j]) != (sal[j + 1] > sbl[j + 1]):
+                bars_away = j - last
+                conditions.append("twist_upcoming")
+                details["twist_bars_away"] = bars_away
+                break
+
+        # 4. Chikou near clearance — current close within 2% of barrier (past cloud top or past price)
+        lag = last - 26
+        if lag >= 0:
+            past_sa    = float(df["span_a"].iat[lag])
+            past_sb    = float(df["span_b"].iat[lag])
+            past_close = float(df["close"].iat[lag])
+            barrier    = max(past_sa, past_sb, past_close)
+            if close < barrier:
+                gap_to_barrier = (barrier - close) / close * 100
+                if gap_to_barrier < 2.0:
+                    conditions.append("chikou_near_clear")
+                    details["chikou_gap_pct"] = round(gap_to_barrier, 2)
+
+        # 5. BB squeeze
+        if "_bb_squeeze" in df.columns and bool(df["_bb_squeeze"].iat[last]):
+            conditions.append("bb_squeeze")
+
+        # 6. Kijun flat + price retesting from above (classic S2 precursor)
+        kj_slope = abs(float(df["_kj_slope5"].iat[last])) if "_kj_slope5" in df.columns else 999
+        kj_dist  = float(df["_kj_distance_pct"].iat[last]) if "_kj_distance_pct" in df.columns else 999
+        if kj_slope < 0.1 and 0.0 <= kj_dist <= 1.5:
+            conditions.append("kijun_retest")
+            details["kj_dist_pct"] = round(kj_dist, 2)
+
+    except Exception as exc:
+        logger.debug("developing conditions error %s %s: %s", sym, timeframe, exc)
+
+    if not conditions:
+        return None
+
+    return {
+        "symbol":          sym.replace("/USDT", "USDT").replace("/", ""),
+        "sym_raw":         sym,
+        "timeframe":       timeframe,
+        "conditions":      conditions,
+        "condition_count": len(conditions),
+        "details":         details,
+        "close":           float(df["close"].iat[-1]),
+    }
 
 
 def run_event_scan(symbols: list[str] | None = None, workers: int = 8) -> dict:
@@ -189,6 +325,7 @@ def run_event_scan(symbols: list[str] | None = None, workers: int = 8) -> dict:
     e2e_opportunities: list[dict] = []
     cloud_curling: list[dict] = []
     new_signals: list[dict] = []
+    developing_setups: list[dict] = []
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {
@@ -211,6 +348,8 @@ def run_event_scan(symbols: list[str] | None = None, workers: int = 8) -> dict:
                 e2e_opportunities.append(res["e2e"])
             if "cloud_curling" in res:
                 cloud_curling.append(res["cloud_curling"])
+            if "developing" in res:
+                developing_setups.append(res["developing"])
             if "signals" in res:
                 new_signals.extend(res["signals"])
 
@@ -241,4 +380,5 @@ def run_event_scan(symbols: list[str] | None = None, workers: int = 8) -> dict:
         "scanned_at":         datetime.now(timezone.utc).isoformat(),
         "new_signal_count":   len(truly_new),
         "new_signals_data":   truly_new,  # consumed by alerts.js to fire SIGNAL notifications
+        "developing_setups":  sorted(developing_setups, key=lambda x: -x["condition_count"]),
     }

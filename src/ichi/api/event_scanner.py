@@ -22,6 +22,7 @@ def get_transition_events(
     df: pd.DataFrame,
     symbol: str,
     timeframe: str,
+    bull_score: int = 0,
     max_bars_ago: int = 10,
     min_conditions: int = 2,
 ) -> dict | None:
@@ -69,6 +70,7 @@ def get_transition_events(
         "full_cluster":      conditions_met == 3,
         "cloud_position":    cloud_pos,
         "vol_ratio":         round(vol, 2) if vol is not None else None,
+        "bull_score":        bull_score,
     }
 
 
@@ -211,6 +213,11 @@ def get_kumo_twist(
         ("BEAR_TWIST", True):  "Bear twist approaching — watch for distribution",
         ("BEAR_TWIST", False): "Bear cloud deepening — avoid longs",
     }
+    close_now     = float(df["close"].iat[i])
+    cloud_top_now = float(df["_cloud_top"].iat[i])   if "_cloud_top"    in df.columns else max(float(df["span_a"].iat[i]), float(df["span_b"].iat[i]))
+    cloud_bot_now = float(df["_cloud_bottom"].iat[i]) if "_cloud_bottom" in df.columns else min(float(df["span_a"].iat[i]), float(df["span_b"].iat[i]))
+    price_pos     = "above_cloud" if close_now > cloud_top_now else ("below_cloud" if close_now < cloud_bot_now else "in_cloud")
+
     return {
         "symbol":           symbol,
         "timeframe":        timeframe,
@@ -219,6 +226,7 @@ def get_kumo_twist(
         "current_cloud":    "BULL" if current_cloud_bull else "BEAR",
         "action_note":      notes[(twist_dir, current_cloud_bull)],
         "bull_score":       bull_score,
+        "price_position":   price_pos,
     }
 
 
